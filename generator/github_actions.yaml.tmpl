@@ -1,0 +1,161 @@
+name: CI — {{ .RepoName }}
+
+on:
+  push:
+    branches: [ "{{ .MainBranch }}" ]
+  pull_request:
+    branches: [ "{{ .MainBranch }}" ]
+{{if .HasDocker }}
+env:
+  IMAGE_NAME: {{ .RepoName }}
+{{end}}
+jobs:
+
+  # ── Build & Test ────────────────────────────────────────────────
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      {{if eq .Language "go"}}
+      - name: Set up Go {{ .Runtime }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: "{{ .Runtime }}"
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+      {{else if eq .Language "python"}}
+      - name: Set up Python {{ .Runtime }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "{{ .Runtime }}"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          {{if .HasPipfile}}pip install pipenv && pipenv install --dev
+          {{else if .HasPyproject}}pip install -e ".[dev]"
+          {{else}}pip install -r requirements.txt
+          {{end}}
+      {{else if eq .Language "node"}}
+      - name: Set up Node.js {{ .Runtime }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "{{ .Runtime }}"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+      {{else if eq .Language "java"}}
+      - name: Set up Java {{ .Runtime }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: "{{ .Runtime }}"
+          distribution: "temurin"
+          cache: "maven"
+      {{else if eq .Language "ruby"}}
+      - name: Set up Ruby {{ .Runtime }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "{{ .Runtime }}"
+          bundler-cache: true
+      {{else if eq .Language "rust"}}
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ "{{" }} runner.os {{ "}}" }}-cargo-${{ "{{" }} hashFiles('**/Cargo.lock') {{ "}}" }}
+      {{end}}
+      {{if .TestCommand}}
+      - name: Run tests
+        run: {{ .TestCommand }}
+      {{end}}
+
+  {{if .HasDocker}}
+  # ── Docker Build ─────────────────────────────────────────────────
+  docker:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      {{if eq .Cloud "aws"}}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ "{{" }} secrets.AWS_ACCESS_KEY_ID {{ "}}" }}
+          aws-secret-access-key: ${{ "{{" }} secrets.AWS_SECRET_ACCESS_KEY {{ "}}" }}
+          aws-region: ${{ "{{" }} secrets.AWS_REGION {{ "}}" }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push to ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ "{{" }} github.ref == 'refs/heads/{{ .MainBranch }}' {{ "}}" }}
+          tags: ${{ "{{" }} steps.login-ecr.outputs.registry {{ "}}" }}/${{ "{{" }} env.IMAGE_NAME {{ "}}" }}:${{ "{{" }} github.sha {{ "}}" }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      {{else if eq .Cloud "gcp"}}
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ "{{" }} secrets.GCP_SA_KEY {{ "}}" }}
+
+      - name: Build and push to GCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ "{{" }} github.ref == 'refs/heads/{{ .MainBranch }}' {{ "}}" }}
+          tags: gcr.io/${{ "{{" }} secrets.GCP_PROJECT_ID {{ "}}" }}/${{ "{{" }} env.IMAGE_NAME {{ "}}" }}:${{ "{{" }} github.sha {{ "}}" }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      {{else}}
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ${{ "{{" }} env.IMAGE_NAME {{ "}}" }}:${{ "{{" }} github.sha {{ "}}" }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      {{end}}
+  {{end}}
+
+  # ── Summary ───────────────────────────────────────────────────────
+  notify:
+    name: Summary
+    runs-on: ubuntu-latest
+    needs: [test{{if .HasDocker}}, docker{{end}}]
+    if: always()
+
+    steps:
+      - name: Pipeline summary
+        run: |
+          echo "## CI Summary — {{ .RepoName }}" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ "{{" }} needs.test.result {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
+          {{if .HasDocker}}echo "| Docker | ${{ "{{" }} needs.docker.result {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
+          {{end}}
