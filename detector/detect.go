@@ -16,15 +16,24 @@ func Detect(dir string) config.ProjectContext {
 	mainBranch := detectMainBranch(dir)
 	repoName := detectRepoName(dir)
 
+	// Framework + build command (only for node projects)
+	framework := ""
+	buildCommand := ""
+	if lang == "node" {
+		framework, buildCommand = DetectFramework(dir)
+	}
+
 	return config.ProjectContext{
-		Language:    lang,
-		Runtime:     runtime,
-		HasDocker:   hasDocker,
-		HasCompose:  hasCompose,
-		TestCommand: testCmd,
-		Cloud:       cloud,
-		MainBranch:  mainBranch,
-		RepoName:    repoName,
+		Language:     lang,
+		Runtime:      runtime,
+		Framework:    framework,
+		HasDocker:    hasDocker,
+		HasCompose:   hasCompose,
+		TestCommand:  testCmd,
+		BuildCommand: buildCommand,
+		Cloud:        cloud,
+		MainBranch:   mainBranch,
+		RepoName:     repoName,
 	}
 }
 
@@ -34,6 +43,7 @@ func detectMainBranch(dir string) string {
 	if err != nil {
 		return "main"
 	}
+	// content looks like: "ref: refs/heads/main"
 	content := strings.TrimSpace(string(b))
 	if strings.Contains(content, "master") {
 		return "master"
