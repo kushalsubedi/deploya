@@ -19,6 +19,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       {{if eq .Language "go"}}
       - name: Set up Go {{ .Runtime }}
         uses: actions/setup-go@v5
@@ -31,6 +32,7 @@ jobs:
 
       - name: Build
         run: go build ./...
+
       {{else if eq .Language "python"}}
       - name: Set up Python {{ .Runtime }}
         uses: actions/setup-python@v5
@@ -44,6 +46,7 @@ jobs:
           {{else if .HasPyproject}}pip install -e ".[dev]"
           {{else}}pip install -r requirements.txt
           {{end}}
+
       {{else if eq .Language "node"}}
       - name: Set up Node.js {{ .Runtime }}
         uses: actions/setup-node@v4
@@ -53,6 +56,22 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      {{if eq .Framework "nextjs"}}
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ${{ "{{" }} github.workspace {{ "}}" }}/.next/cache
+          key: ${{ "{{" }} runner.os {{ "}}" }}-nextjs-${{ "{{" }} hashFiles('**/package-lock.json') {{ "}}" }}
+      {{end}}
+
+      {{if .BuildCommand}}
+      - name: Build
+        run: {{ .BuildCommand }}
+      {{end}}
+
       {{else if eq .Language "java"}}
       - name: Set up Java {{ .Runtime }}
         uses: actions/setup-java@v4
@@ -60,12 +79,14 @@ jobs:
           java-version: "{{ .Runtime }}"
           distribution: "temurin"
           cache: "maven"
+
       {{else if eq .Language "ruby"}}
       - name: Set up Ruby {{ .Runtime }}
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "{{ .Runtime }}"
           bundler-cache: true
+
       {{else if eq .Language "rust"}}
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -79,15 +100,16 @@ jobs:
             target/
           key: ${{ "{{" }} runner.os {{ "}}" }}-cargo-${{ "{{" }} hashFiles('**/Cargo.lock') {{ "}}" }}
       {{end}}
+
       {{if .TestCommand}}
       - name: Run tests
         run: {{ .TestCommand }}
       {{end}}
 
   {{if .HasDocker}}
-  # ── Docker Build ─────────────────────────────────────────────────
+  # ── Docker Build & Push ───────────────────────────────────────────
   docker:
-    name: Build Docker image
+    name: Build & Push Docker image
     runs-on: ubuntu-latest
     needs: test
 
@@ -97,7 +119,41 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      {{if eq .Cloud "aws"}}
+
+      {{if eq .Registry "ghcr"}}
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ "{{" }} github.actor {{ "}}" }}
+          password: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+
+      - name: Build and push to GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ "{{" }} github.ref == 'refs/heads/{{ .MainBranch }}' {{ "}}" }}
+          tags: ghcr.io/${{ "{{" }} github.repository_owner {{ "}}" }}/${{ "{{" }} env.IMAGE_NAME {{ "}}" }}:${{ "{{" }} github.sha {{ "}}" }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      {{else if eq .Registry "dockerhub"}}
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ "{{" }} secrets.DOCKERHUB_USERNAME {{ "}}" }}
+          password: ${{ "{{" }} secrets.DOCKERHUB_TOKEN {{ "}}" }}
+
+      - name: Build and push to Docker Hub
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ "{{" }} github.ref == 'refs/heads/{{ .MainBranch }}' {{ "}}" }}
+          tags: ${{ "{{" }} secrets.DOCKERHUB_USERNAME {{ "}}" }}/${{ "{{" }} env.IMAGE_NAME {{ "}}" }}:${{ "{{" }} github.sha {{ "}}" }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      {{else if eq .Registry "ecr"}}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -117,7 +173,8 @@ jobs:
           tags: ${{ "{{" }} steps.login-ecr.outputs.registry {{ "}}" }}/${{ "{{" }} env.IMAGE_NAME {{ "}}" }}:${{ "{{" }} github.sha {{ "}}" }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      {{else if eq .Cloud "gcp"}}
+
+      {{else if eq .Registry "gcr"}}
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -131,20 +188,125 @@ jobs:
           tags: gcr.io/${{ "{{" }} secrets.GCP_PROJECT_ID {{ "}}" }}/${{ "{{" }} env.IMAGE_NAME {{ "}}" }}:${{ "{{" }} github.sha {{ "}}" }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      {{else}}
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: false
-          tags: ${{ "{{" }} env.IMAGE_NAME {{ "}}" }}:${{ "{{" }} github.sha {{ "}}" }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
       {{end}}
   {{end}}
 
-  # ── Summary ───────────────────────────────────────────────────────
+  # ── Notify ────────────────────────────────────────────────────────
+  {{if eq .Notify "slack"}}
   notify:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    needs: [test{{if .HasDocker}}, docker{{end}}]
+    if: always()
+
+    steps:
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ "{{" }} needs.test.result == 'success' && '✅ Pipeline Passed' || '❌ Pipeline Failed' {{ "}}" }} — {{ .RepoName }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    { "type": "mrkdwn", "text": "*Repository*\n{{ .RepoName }}" },
+                    { "type": "mrkdwn", "text": "*Branch*\n${{ "{{" }} github.ref_name {{ "}}" }}" },
+                    { "type": "mrkdwn", "text": "*Language*\n{{ .Language }} {{ .Runtime }}" },
+                    { "type": "mrkdwn", "text": "*Triggered by*\n${{ "{{" }} github.actor {{ "}}" }}" },
+                    { "type": "mrkdwn", "text": "*Commit*\n${{ "{{" }} github.sha {{ "}}" }}" },
+                    { "type": "mrkdwn", "text": "*Tests*\n${{ "{{" }} needs.test.result {{ "}}" }}" }
+                    {{if .HasDocker}},{ "type": "mrkdwn", "text": "*Docker*\n${{ "{{" }} needs.docker.result {{ "}}" }}" }{{end}}
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": { "type": "plain_text", "text": "View Run" },
+                      "url": "${{ "{{" }} github.server_url {{ "}}" }}/${{ "{{" }} github.repository {{ "}}" }}/actions/runs/${{ "{{" }} github.run_id {{ "}}" }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ "{{" }} secrets.SLACK_WEBHOOK_URL {{ "}}" }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+  {{else if eq .Notify "discord"}}
+  notify:
+    name: Discord Notification
+    runs-on: ubuntu-latest
+    needs: [test{{if .HasDocker}}, docker{{end}}]
+    if: always()
+
+    steps:
+      - name: Notify Discord
+        uses: tsickert/discord-webhook@v6.0.0
+        with:
+          webhook-url: ${{ "{{" }} secrets.DISCORD_WEBHOOK_URL {{ "}}" }}
+          embed-title: "${{ "{{" }} needs.test.result == 'success' && '✅ Pipeline Passed' || '❌ Pipeline Failed' {{ "}}" }} — {{ .RepoName }}"
+          embed-color: "${{ "{{" }} needs.test.result == 'success' && '3066993' || '15158332' {{ "}}" }}"
+          embed-description: |
+            **Repository** : {{ .RepoName }}
+            **Branch**     : ${{ "{{" }} github.ref_name {{ "}}" }}
+            **Language**   : {{ .Language }} {{ .Runtime }}
+            {{if .Framework}}**Framework**  : {{ .Framework }}
+            {{end}}**Triggered by**: ${{ "{{" }} github.actor {{ "}}" }}
+            **Commit**     : ${{ "{{" }} github.sha {{ "}}" }}
+            **Tests**      : ${{ "{{" }} needs.test.result {{ "}}" }}
+            {{if .HasDocker}}**Docker**     : ${{ "{{" }} needs.docker.result {{ "}}" }}{{end}}
+
+            [🔗 View Run](${{ "{{" }} github.server_url {{ "}}" }}/${{ "{{" }} github.repository {{ "}}" }}/actions/runs/${{ "{{" }} github.run_id {{ "}}" }})
+
+  {{else if eq .Notify "email"}}
+  notify:
+    name: Email Notification
+    runs-on: ubuntu-latest
+    needs: [test{{if .HasDocker}}, docker{{end}}]
+    if: always()
+
+    steps:
+      - name: Send email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ "{{" }} secrets.MAIL_USERNAME {{ "}}" }}
+          password: ${{ "{{" }} secrets.MAIL_PASSWORD {{ "}}" }}
+          to: ${{ "{{" }} secrets.MAIL_TO {{ "}}" }}
+          from: GitHub Actions
+          subject: "[${{ "{{" }} needs.test.result == 'success' && '✅ PASSED' || '❌ FAILED' {{ "}}" }}] {{ .RepoName }} — ${{ "{{" }} github.ref_name {{ "}}" }}"
+          body: |
+            CI Pipeline Summary — {{ .RepoName }}
+            ─────────────────────────────────────
+            Repository  : {{ .RepoName }}
+            Branch      : ${{ "{{" }} github.ref_name {{ "}}" }}
+            Commit      : ${{ "{{" }} github.sha {{ "}}" }}
+            Triggered by: ${{ "{{" }} github.actor {{ "}}" }}
+            Language    : {{ .Language }} {{ .Runtime }}
+            {{if .Framework}}Framework   : {{ .Framework }}
+            {{end}}
+            ─────────────────────────────────────
+            Job Results
+            ─────────────────────────────────────
+            Tests       : ${{ "{{" }} needs.test.result {{ "}}" }}
+            {{if .HasDocker}}Docker      : ${{ "{{" }} needs.docker.result {{ "}}" }}
+            {{end}}
+            ─────────────────────────────────────
+            View run: ${{ "{{" }} github.server_url {{ "}}" }}/${{ "{{" }} github.repository {{ "}}" }}/actions/runs/${{ "{{" }} github.run_id {{ "}}" }}
+  {{end}}
+
+  # ── Summary ───────────────────────────────────────────────────────
+  summary:
     name: Summary
     runs-on: ubuntu-latest
     needs: [test{{if .HasDocker}}, docker{{end}}]
@@ -153,9 +315,19 @@ jobs:
     steps:
       - name: Pipeline summary
         run: |
-          echo "## CI Summary — {{ .RepoName }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 CI Summary — {{ .RepoName }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔤 Language | {{ .Language }} {{ .Runtime }} |" >> $GITHUB_STEP_SUMMARY
+          {{if .Framework}}echo "| 🧩 Framework | {{ .Framework }} |" >> $GITHUB_STEP_SUMMARY
+          {{end}}echo "| 🌿 Branch | ${{ "{{" }} github.ref_name {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📝 Commit | ${{ "{{" }} github.sha {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 👤 Triggered by | ${{ "{{" }} github.actor {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Jobs" >> $GITHUB_STEP_SUMMARY
           echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Tests | ${{ "{{" }} needs.test.result {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
-          {{if .HasDocker}}echo "| Docker | ${{ "{{" }} needs.docker.result {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🧪 Tests | ${{ "{{" }} needs.test.result {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
+          {{if .HasDocker}}echo "| 🐳 Docker | ${{ "{{" }} needs.docker.result {{ "}}" }} |" >> $GITHUB_STEP_SUMMARY
           {{end}}
