@@ -2,15 +2,13 @@ package generator
 
 import (
 	"bytes"
+	"deploya/config"
 	_ "embed"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
-
-	"deploya/config"
 )
-
-//go:embed github_actions.yaml.tmpl
 
 var githubActionsTemplate string
 
@@ -19,6 +17,7 @@ type TemplateData struct {
 	config.ProjectContext
 	HasPipfile   bool
 	HasPyproject bool
+	ImageName    string // always lowercase version of RepoName
 }
 
 // Generate renders the pipeline YAML for the given context.
@@ -27,6 +26,7 @@ func Generate(ctx config.ProjectContext, dir string) (string, error) {
 		ProjectContext: ctx,
 		HasPipfile:     fileExists(filepath.Join(dir, "Pipfile")),
 		HasPyproject:   fileExists(filepath.Join(dir, "pyproject.toml")),
+		ImageName:      strings.ToLower(ctx.RepoName),
 	}
 
 	tmpl, err := template.New("pipeline").Parse(githubActionsTemplate)

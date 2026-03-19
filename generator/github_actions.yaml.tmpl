@@ -7,7 +7,7 @@ on:
     branches: [ "{{ .MainBranch }}" ]
 {{if .HasDocker }}
 env:
-  IMAGE_NAME: {{ .RepoName }}
+  IMAGE_NAME: {{ .ImageName }}
 {{end}}
 jobs:
 

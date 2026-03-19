@@ -13,6 +13,7 @@ type ProjectContext struct {
 	Cloud        string // aws, gcp, azure, none
 	MainBranch   string // main or master
 	RepoName     string
+	// ImageName    string // normalized repo name
 
 	// User choices
 	Registry string // ghcr, dockerhub, ecr, gcr
