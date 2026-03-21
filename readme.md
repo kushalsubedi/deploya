@@ -8,8 +8,6 @@
 ## Why?
 Because we hate creating `ci.yml` and sometimes a basic one will also work. Yet it can be upgraded to handle some repetitive tasks.
 
-## Who built this?
-Of course me, and my free AI tools.
 
 ## How to run
 ```bash
