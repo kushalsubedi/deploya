@@ -4,7 +4,7 @@ current_version: v0.1.0
 tag_prefix: v
 archive: true
 registry: ghcr
-github_repo: yourusername/deploya
+github_repo: kushalsubedi/deploya
 categories:
   features: [feat, feature]
   fixes: [fix, bugfix, bug]
