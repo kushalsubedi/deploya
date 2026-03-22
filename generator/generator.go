@@ -8,8 +8,8 @@ import (
 	"strings"
 	"text/template"
 
-	"deploya/config"
-	"deploya/releaserc"
+	"github.com/kushalsubedi/deploya/config"
+	"github.com/kushalsubedi/deploya/releaserc"
 )
 
 //go:embed templates/github_actions.yaml.tmpl

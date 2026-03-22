@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"deploya/cmd"
+	"github.com/kushalsubedi/deploya/cmd"
 )
 
 func main() {
