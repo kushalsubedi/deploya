@@ -1,6 +1,6 @@
 on_branch: main
 from_branch: develop
-current_version: 0.1.0
+current_version: 0.1.1
 tag_prefix: v
 archive: true
 registry: ghcr
@@ -10,6 +10,3 @@ categories:
   fixes: [fix, bugfix, bug]
   patches: [chore, refactor, perf, improvement]
   docs: [docs, doc]
-
-
-#test for breaking
