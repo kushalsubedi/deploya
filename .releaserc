@@ -1,5 +1,5 @@
 on_branch: main
-from_branch: develop
+from_branch: dev
 current_version: 0.1.1
 tag_prefix: v
 archive: true
