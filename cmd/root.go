@@ -17,6 +17,7 @@ Commands:
   validate    Lint and validate the generated pipeline YAML
   preview     Dry-run: print the pipeline to stdout without writing files
   add         Add a new job or step to an existing pipeline
+  release     Cut a new release — bump version, generate changelog, publish to GitHub
 
 Flags:
   --version   Print version and exit
@@ -44,6 +45,8 @@ func Execute() error {
 		return runPreview(os.Args[2:])
 	case "add":
 		return runAdd(os.Args[2:])
+	case "release":
+		return runRelease(os.Args[2:])
 	case "--version", "version":
 		fmt.Printf("deploya v%s\n", version)
 		return nil

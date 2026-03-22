@@ -153,12 +153,12 @@ jobs:
           go-version: "stable"
 
       - name: Install deploya
-        run: go install github.com/yourusername/deploya@latest
+        run: go install github.com/kushalsubedi/deploya
 
       - name: Run deploya release
         run: deploya release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 `
 }
 
