@@ -1,0 +1,12 @@
+on_branch: main
+from_branch: develop
+current_version: v0.1.0
+tag_prefix: v
+archive: true
+registry: ghcr
+github_repo: yourusername/deploya
+categories:
+  features: [feat, feature]
+  fixes: [fix, bugfix, bug]
+  patches: [chore, refactor, perf, improvement]
+  docs: [docs, doc]
