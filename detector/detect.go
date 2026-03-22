@@ -1,10 +1,11 @@
 package detector
 
 import (
-	"deploya/config"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kushalsubedi/deploya/config"
 )
 
 // Detect runs all detectors and returns a complete ProjectContext.

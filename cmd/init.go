@@ -4,11 +4,11 @@ import (
 	"flag"
 	"fmt"
 
-	"deploya/config"
-	"deploya/detector"
-	"deploya/generator"
-	"deploya/prompt"
-	"deploya/releaserc"
+	"github.com/kushalsubedi/deploya/config"
+	"github.com/kushalsubedi/deploya/detector"
+	"github.com/kushalsubedi/deploya/generator"
+	"github.com/kushalsubedi/deploya/prompt"
+	"github.com/kushalsubedi/deploya/releaserc"
 )
 
 func runInit(args []string) error {
