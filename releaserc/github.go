@@ -62,6 +62,20 @@ func (g *GitHub) EnrichCommits(commits []CommitInfo) ([]CommitInfo, error) {
 	return enriched, nil
 }
 
+// func CreateSignedTag(tag, message string) error {
+// 	cmd := exec.Command("git", "tag", "-s", tag, "-m", message)
+// 	cmd.Stdout = os.Stdout
+// 	cmd.Stderr = os.Stderr
+// 	return cmd.Run()
+// }
+
+// func PushTag(tag string) error {
+// 	cmd := exec.Command("git", "push", "origin", tag)
+// 	cmd.Stdout = os.Stdout
+// 	cmd.Stderr = os.Stderr
+// 	return cmd.Run()
+// }
+
 // CreateRelease creates a GitHub release and returns the release ID.
 func (g *GitHub) CreateRelease(version, tag, body string) (int64, error) {
 	payload := map[string]interface{}{
