@@ -93,6 +93,12 @@ func CurrentSHA(dir string) (string, error) {
 // CommitAndPush stages the given files, commits and pushes them.
 // Used after a release to commit updated .releaserc and CHANGELOG.md.
 func CommitAndPush(dir, message string, files []string) error {
+	// Configure git user if not already set (e.g. in CI)
+	if name, _ := runGitOutput(dir, "config", "user.name"); strings.TrimSpace(name) == "" {
+		_ = runGit(dir, "config", "user.name", "github-actions[bot]")
+		_ = runGit(dir, "config", "user.email", "github-actions[bot]@users.noreply.github.com")
+	}
+
 	// Stage files
 	args := append([]string{"add"}, files...)
 	if err := runGit(dir, args...); err != nil {

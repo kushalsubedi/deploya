@@ -60,12 +60,12 @@ func Generate(ctx config.ProjectContext, dir string) (string, error) {
 // Write saves the generated pipeline to .github/workflows/ci.yml.
 func Write(content, dir string) (string, error) {
 	outDir := filepath.Join(dir, ".github", "workflows")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return "", err
 	}
 
 	outPath := filepath.Join(outDir, "ci.yml")
-	if err := os.WriteFile(outPath, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(outPath, []byte(content), 0644); err != nil {
 		return "", err
 	}
 
@@ -76,13 +76,13 @@ func Write(content, dir string) (string, error) {
 // Full implementation comes when release package is built.
 func WriteReleasePipeline(cfg releaserc.Config, dir string) (string, error) {
 	outDir := filepath.Join(dir, ".github", "workflows")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return "", err
 	}
 
 	content := buildReleasePipeline(cfg)
 	outPath := filepath.Join(outDir, "release.yml")
-	if err := os.WriteFile(outPath, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(outPath, []byte(content), 0644); err != nil {
 		return "", err
 	}
 
@@ -146,14 +146,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: "stable"
 
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Install deploya
-        run: go install github.com/kushalsubedi/deploya
+        run: go install github.com/yourusername/deploya@latest
 
       - name: Run deploya release
         run: deploya release
@@ -163,10 +169,10 @@ jobs:
 }
 
 func writeFile(path, content string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 func fileExists(path string) bool {
