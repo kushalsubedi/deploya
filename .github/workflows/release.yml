@@ -30,7 +30,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Install deploya
-        run: go install github.com/yourusername/deploya@latest
+        run: go install github.com/kushalsubedi/deploya@latest
 
       - name: Run deploya release
         run: deploya release
