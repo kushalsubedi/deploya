@@ -104,8 +104,15 @@ func CommitAndPush(dir, message string, files []string) error {
 		return fmt.Errorf("git commit failed: %w", err)
 	}
 
-	// Push
-	if err := runGit(dir, "push"); err != nil {
+	// Get current branch name
+	branch, err := runGitOutput(dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return fmt.Errorf("could not get current branch: %w", err)
+	}
+	branch = strings.TrimSpace(branch)
+
+	// Push — set upstream automatically if not set
+	if err := runGit(dir, "push", "--set-upstream", "origin", branch); err != nil {
 		return fmt.Errorf("git push failed: %w", err)
 	}
 

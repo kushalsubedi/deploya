@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/kushalsubedi/deploya/releaserc"
 )
@@ -113,12 +115,17 @@ Flags:`)
 	}
 
 	// ── Create GitHub release ──────────────────────────────────────
+	// Strip version prefix before concatenating with tag_prefix
+	// e.g. tag_prefix="v" + version="v0.1.0" → strip to "0.1.0" → "v0.1.0"
+	versionNoPrefix := strings.TrimPrefix(nextVer.String(), cfg.TagPrefix)
+	tag := cfg.TagPrefix + versionNoPrefix
+
 	fmt.Printf("\n🚀 Creating GitHub release %s...\n", nextVer.String())
-	releaseID, err := gh.CreateRelease(nextVer.String(), cfg.TagPrefix+nextVer.String(), notes)
+	releaseID, err := gh.CreateRelease(nextVer.String(), tag, notes)
 	if err != nil {
 		return fmt.Errorf("could not create GitHub release: %w", err)
 	}
-	fmt.Printf("   ✅ Release created: https://github.com/%s/releases/tag/%s\n", cfg.GithubRepo, nextVer.String())
+	fmt.Printf("   ✅ Release created: https://github.com/%s/releases/tag/%s\n", cfg.GithubRepo, tag)
 
 	// ── Build and upload archives ──────────────────────────────────
 	if cfg.Archive {
@@ -132,9 +139,11 @@ Flags:`)
 				if err := gh.UploadAsset(releaseID, a); err != nil {
 					fmt.Printf("   ⚠️  Upload failed for %s: %v\n", a, err)
 				} else {
-					fmt.Printf("   ✅ %s\n", a)
+					fmt.Printf("   ✅ Uploaded: %s\n", filepath.Base(a))
 				}
 			}
+			// Clean up dist dir after upload
+			releaserc.CleanupArchives(*dir)
 		}
 	}
 
@@ -162,10 +171,10 @@ Flags:`)
 	fmt.Printf("  🎉 Released %s successfully!\n", nextVer.String())
 	fmt.Println(repeat("─", 52))
 	fmt.Printf("\n  📦 Version   : %s\n", nextVer.String())
-	fmt.Printf("  🔖 Tag       : %s%s\n", cfg.TagPrefix, nextVer.String())
+	fmt.Printf("  🔖 Tag       : %s\n", tag)
 	fmt.Printf("  📝 Changelog : CHANGELOG.md\n")
-	fmt.Printf("  🔗 Release   : https://github.com/%s/releases/tag/%s%s\n",
-		cfg.GithubRepo, cfg.TagPrefix, nextVer.String())
+	fmt.Printf("  🔗 Release   : https://github.com/%s/releases/tag/%s\n",
+		cfg.GithubRepo, tag)
 	fmt.Println()
 
 	return nil

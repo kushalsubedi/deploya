@@ -28,6 +28,7 @@ var defaultTargets = []Target{
 
 // BuildArchives cross-compiles the Go binary for all platforms
 // and returns a list of archive file paths.
+// Caller is responsible for cleaning up the returned files after upload.
 func BuildArchives(dir, repo, version string) ([]string, error) {
 	// Get binary name from repo (owner/repo → repo)
 	parts := strings.SplitN(repo, "/", 2)
@@ -36,12 +37,11 @@ func BuildArchives(dir, repo, version string) ([]string, error) {
 		binaryName = parts[1]
 	}
 
-	// Create temp output dir
+	// Create output dir
 	outDir := filepath.Join(dir, ".deploya-dist")
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return nil, fmt.Errorf("could not create dist dir: %w", err)
 	}
-	defer os.RemoveAll(outDir) // clean up after upload
 
 	var archives []string
 
@@ -56,6 +56,11 @@ func BuildArchives(dir, repo, version string) ([]string, error) {
 	}
 
 	return archives, nil
+}
+
+// CleanupArchives removes the dist directory after upload.
+func CleanupArchives(dir string) {
+	os.RemoveAll(filepath.Join(dir, ".deploya-dist"))
 }
 
 func buildOne(dir, outDir, binaryName, version string, t Target) (string, error) {
