@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/kushalsubedi/deploya/releaserc"
@@ -121,31 +120,11 @@ Flags:`)
 	tag := cfg.TagPrefix + versionNoPrefix
 
 	fmt.Printf("\n🚀 Creating GitHub release %s...\n", nextVer.String())
-	releaseID, err := gh.CreateRelease(nextVer.String(), tag, notes)
+	_, err = gh.CreateRelease(nextVer.String(), tag, notes)
 	if err != nil {
 		return fmt.Errorf("could not create GitHub release: %w", err)
 	}
 	fmt.Printf("   ✅ Release created: https://github.com/%s/releases/tag/%s\n", cfg.GithubRepo, tag)
-
-	// ── Build and upload archives ──────────────────────────────────
-	if cfg.Archive {
-		fmt.Println("\n📦 Building release archives...")
-		archives, err := releaserc.BuildArchives(*dir, cfg.GithubRepo, nextVer.String())
-		if err != nil {
-			fmt.Printf("   ⚠️  Archive build failed: %v\n", err)
-		} else {
-			fmt.Printf("   Built %d archives — uploading...\n", len(archives))
-			for _, a := range archives {
-				if err := gh.UploadAsset(releaseID, a); err != nil {
-					fmt.Printf("   ⚠️  Upload failed for %s: %v\n", a, err)
-				} else {
-					fmt.Printf("   ✅ Uploaded: %s\n", filepath.Base(a))
-				}
-			}
-			// Clean up dist dir after upload
-			releaserc.CleanupArchives(*dir)
-		}
-	}
 
 	// ── Update .releaserc with new version ─────────────────────────
 	fmt.Println("\n💾 Updating .releaserc...")
