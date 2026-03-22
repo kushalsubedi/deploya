@@ -8,6 +8,7 @@ import (
 	"deploya/detector"
 	"deploya/generator"
 	"deploya/prompt"
+	"deploya/releaserc"
 )
 
 func runInit(args []string) error {
@@ -17,9 +18,9 @@ func runInit(args []string) error {
 	notify := fs.String("notify", "", "Notification channel: slack, discord, email, none")
 	fs.Usage = func() {
 		fmt.Println(`Usage: deploya init [flags]
- 
+
 Detects your project and generates a GitHub Actions pipeline.
- 
+
 Flags:`)
 		fs.PrintDefaults()
 	}
@@ -28,7 +29,7 @@ Flags:`)
 	}
 
 	// ── Detect project ─────────────────────────────────────────────
-	fmt.Println(" Scanning project...")
+	fmt.Println("🔍 Scanning project...")
 	ctx := detector.Detect(*dir)
 	printSummary(ctx)
 
@@ -56,8 +57,12 @@ Flags:`)
 		ctx.Notify = askNotify()
 	}
 
-	// ── Generate pipeline ──────────────────────────────────────────
-	fmt.Println("\n Generating GitHub Actions pipeline...")
+	// ── Release pipeline ───────────────────────────────────────────
+	var relCfg *releaserc.Config
+	relCfg = handleRelease(*dir, ctx)
+
+	// ── Generate CI pipeline ───────────────────────────────────────
+	fmt.Println("\n⚙️  Generating GitHub Actions pipeline...")
 	content, err := generator.Generate(ctx, *dir)
 	if err != nil {
 		return fmt.Errorf("generation failed: %w", err)
@@ -68,8 +73,28 @@ Flags:`)
 		return fmt.Errorf("failed to write pipeline: %w", err)
 	}
 
+	// ── Generate release pipeline if releaserc configured ──────────
+	var releasePipelinePath string
+	if relCfg != nil {
+		releasePipelinePath, err = generator.WriteReleasePipeline(*relCfg, *dir)
+		if err != nil {
+			fmt.Printf("  ⚠️  Warning: could not write release pipeline: %v\n", err)
+		}
+	}
+
+	// ── Generate GitHub templates ──────────────────────────────────
+	fmt.Println("📝 Generating GitHub templates...")
+	written, err := generator.WriteGithubTemplates(*dir)
+	if err != nil {
+		fmt.Printf("  ⚠️  Warning: could not write GitHub templates: %v\n", err)
+	} else {
+		for _, f := range written {
+			fmt.Printf("   ✅ %s\n", f)
+		}
+	}
+
 	// ── Summary report ─────────────────────────────────────────────
-	printReport(ctx, outPath)
+	printReport(ctx, outPath, releasePipelinePath)
 	return nil
 }
 
@@ -116,7 +141,7 @@ func askNotify() string {
 }
 
 func printSummary(ctx config.ProjectContext) {
-	fmt.Println("\n Detection results:")
+	fmt.Println("\n📋 Detection results:")
 	fmt.Printf("   Language     : %s %s\n", ctx.Language, ctx.Runtime)
 	if ctx.Framework != "" {
 		fmt.Printf("   Framework    : %s\n", ctx.Framework)
@@ -131,13 +156,69 @@ func printSummary(ctx config.ProjectContext) {
 	fmt.Printf("   Repo name    : %s\n", ctx.RepoName)
 }
 
-func printReport(ctx config.ProjectContext, outPath string) {
+// handleRelease checks for .releaserc or asks user if they want releases.
+// Returns a config pointer if release pipeline should be generated, nil otherwise.
+func handleRelease(dir string, ctx config.ProjectContext) *releaserc.Config {
+	// Check if .releaserc already exists
+	if cfg, err := releaserc.Load(dir); err == nil {
+		fmt.Println("\n📦 Found .releaserc — release pipeline will be generated")
+		return &cfg
+	}
+
+	// Ask user if they want automated releases
+	if !prompt.Confirm("Do you want to set up automated releases? (deploya release)", false) {
+		return nil
+	}
+
+	// Ask for github_repo
+	fmt.Print("\n  Enter your GitHub repo (owner/repo): ")
+	var repo string
+	fmt.Scanln(&repo)
+	if repo == "" || !containsSlash(repo) {
+		fmt.Println("  ⚠️  Skipping release setup — invalid repo format")
+		return nil
+	}
+
+	// Ask archive
+	archive := prompt.Confirm("Build release binaries for all platforms?", true)
+
+	// Build config with defaults + user input
+	cfg := releaserc.DefaultConfig()
+	cfg.GithubRepo = repo
+	cfg.Archive = archive
+	cfg.Registry = ctx.Registry
+	cfg.OnBranch = ctx.MainBranch
+	cfg.CurrentVersion = "v0.0.0"
+
+	// Save .releaserc to project
+	if err := releaserc.Save(dir, cfg); err != nil {
+		fmt.Printf("  ⚠️  Could not save .releaserc: %v\n", err)
+		return nil
+	}
+
+	fmt.Println("  ✅ Created .releaserc")
+	return &cfg
+}
+
+func containsSlash(s string) bool {
+	for _, c := range s {
+		if c == '/' {
+			return true
+		}
+	}
+	return false
+}
+
+func printReport(ctx config.ProjectContext, outPath, releasePath string) {
 	fmt.Println("\n" + repeat("─", 52))
-	fmt.Println("  Pipeline generated successfully!")
+	fmt.Println("  ✅ Pipeline generated successfully!")
 	fmt.Println(repeat("─", 52))
 
-	fmt.Printf("\n   File       : %s\n", outPath)
-	fmt.Printf("   Language   : %s %s\n", ctx.Language, ctx.Runtime)
+	fmt.Printf("\n  📄 CI pipeline   : %s\n", outPath)
+	if releasePath != "" {
+		fmt.Printf("  📄 Release pipeline: %s\n", releasePath)
+	}
+	fmt.Printf("  🔤 Language   : %s %s\n", ctx.Language, ctx.Runtime)
 	if ctx.Framework != "" && ctx.Framework != "plain" {
 		fmt.Printf("  🧩 Framework  : %s\n", ctx.Framework)
 	}
@@ -165,7 +246,7 @@ func printReport(ctx config.ProjectContext, outPath string) {
 	}
 
 	fmt.Println("\n  Next steps:")
-	fmt.Println("    1. Review the generated file")
+	fmt.Println("    1. Review the generated file(s)")
 	if len(secrets) > 0 {
 		fmt.Println("    2. Add the required secrets above in GitHub")
 		fmt.Println("    3. git add .github && git commit -m 'ci: add deploya pipeline'")
