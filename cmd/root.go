@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const version = "0.1.0"
+// const version = "0.1.0"
 
 const usage = `deploya — zero-config CI/CD pipeline generator
 
@@ -47,9 +47,7 @@ func Execute() error {
 		return runAdd(os.Args[2:])
 	case "release":
 		return runRelease(os.Args[2:])
-	case "--version", "version":
-		fmt.Printf("deploya v%s\n", version)
-		return nil
+
 	case "--help", "help", "-h":
 		fmt.Print(usage)
 		return nil
