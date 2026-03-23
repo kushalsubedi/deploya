@@ -4,6 +4,7 @@
 - It generates a `ci.yml` file that will get triggered on push or PR on main branch
 - It will generate basic jobs like test, build, notification to your corporate messaging app (e.g. Slack, Discord, or your boss's email if required)
 - Generates a build summary of CI runs
+- Generates Release pipeline for your product semantic github release
 
 ## Why?
 Because we hate creating `ci.yml` and sometimes a basic one will also work. Yet it can be upgraded to handle some repetitive tasks.
@@ -169,3 +170,21 @@ jobs:
           
 ```
 
+# If you want to generate release without any pain 
+Create a `.releaserc` file in your working directory with following Basic config and let `deploya init` do the job for you !!
+
+```yaml
+on_branch: main # on which branch you want release to take place 
+from_branch: dev # this might not be needed as the product is under development
+current_version: 0.1.1 # your current release version or github tag, if it is initial keep it `0.0.0`
+tag_prefix: v # tag prefix eg: v0.0.1, or whatever prefix you want 
+archive: true # this is not needed, but this tool hasn't release it's first major so keep it until v1.0.0 of deploya 
+registry: ghcr # this is optional and feature is yet to come 
+github_repo: kushalsubedi/deploya # your github repo 
+categories:
+# release types and commit typos 
+  features: [feat, feature]
+  fixes: [fix, bugfix, bug]
+  patches: [chore, refactor, perf, improvement]
+  docs: [docs, doc]
+```
