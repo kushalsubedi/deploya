@@ -146,7 +146,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{secrets.GH_TOKEN}}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -164,7 +164,7 @@ jobs:
       - name: Run deploya release
         run: deploya release
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{secrets.GH_TOKEN}}
 `
 }
 
