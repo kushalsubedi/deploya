@@ -10,3 +10,4 @@ categories:
   fixes: [fix, bugfix, bug]
   patches: [chore, refactor, perf, improvement]
   docs: [docs, doc]
+
