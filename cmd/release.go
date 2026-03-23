@@ -37,9 +37,9 @@ Flags:`)
 	fmt.Printf("   Archive      : %v\n", cfg.Archive)
 
 	// ── Check GITHUB_TOKEN ─────────────────────────────────────────
-	token := os.Getenv("GH_TOKEN")
+	token := os.Getenv("GITHUBH_TOKEN")
 	if token == "" {
-		return fmt.Errorf("GH_TOKEN environment variable is not set\nSet it with: export GH_TOKEN=your_token")
+		return fmt.Errorf("GITHUBH_TOKEN environment variable is not set\nSet it with: export GITHUBH_TOKEN=your_token")
 	}
 
 	// ── Read git log ───────────────────────────────────────────────
