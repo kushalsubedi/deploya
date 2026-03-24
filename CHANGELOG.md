@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## 0.1.5 — 2026-03-24
+
+### 🔧 Patches & Maintenance
+- Release 0.1.4 [skip ci]
+
+### 📝 Docs
+- Doc: update readme
+
+**Full changelog:** [`0.1.4...0.1.5`](https://github.com/kushalsubedi/deploya/compare/0.1.4...0.1.5)
+
+
 ## 0.1.4 — 2026-03-23
 
 ### 🐛 Bug Fixes
