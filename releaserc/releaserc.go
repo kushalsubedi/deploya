@@ -128,7 +128,7 @@ func Save(dir string, cfg Config) error {
 	sb.WriteString("from_branch: " + cfg.FromBranch + "\n")
 	sb.WriteString("current_version: " + cfg.CurrentVersion + "\n")
 	sb.WriteString("tag_prefix: " + cfg.TagPrefix + "\n")
-	sb.WriteString("archive: " + boolStr(cfg.Archive) + "\n")
+	// sb.WriteString("archive: " + boolStr(cfg.Archive) + "\n")
 	sb.WriteString("registry: " + cfg.Registry + "\n")
 	sb.WriteString("github_repo: " + cfg.GithubRepo + "\n")
 	sb.WriteString("categories:\n")
@@ -183,9 +183,9 @@ func validate(cfg Config) error {
 	return nil
 }
 
-func boolStr(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
-}
+// func boolStr(b bool) string {
+// 	if b {
+// 		return "true"
+// 	}
+// 	return "false"
+// }
