@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## 0.1.7 — 2026-04-02
+
+### 🐛 Bug Fixes
+- Push to container repository set to true as default
+
+### 🔧 Patches & Maintenance
+- Release 0.1.6 [skip ci]
+
+**Full changelog:** [`0.1.6...0.1.7`](https://github.com/kushalsubedi/deploya/compare/0.1.6...0.1.7)
+
+
 ## 0.1.6 — 2026-03-24
 
 ### 🔧 Patches & Maintenance
