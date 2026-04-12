@@ -9,6 +9,7 @@ import (
 )
 
 // CategorizeCommits groups commits into categories based on labels and prefixes.
+// Filters out deploya's own release commits ([skip ci]).
 func CategorizeCommits(commits []CommitInfo, cats Categories) []Category {
 	features := Category{Name: "Features", Emoji: "✨"}
 	fixes := Category{Name: "Bug Fixes", Emoji: "🐛"}
@@ -16,6 +17,11 @@ func CategorizeCommits(commits []CommitInfo, cats Categories) []Category {
 	docs := Category{Name: "Docs", Emoji: "📝"}
 
 	for _, c := range commits {
+		// Skip deploya's own release commits
+		if isSkipCommit(c.Title) {
+			continue
+		}
+
 		cat := categorizeOne(c, cats)
 		switch cat {
 		case "features":
@@ -37,6 +43,14 @@ func CategorizeCommits(commits []CommitInfo, cats Categories) []Category {
 		}
 	}
 	return result
+}
+
+// isSkipCommit returns true for commits that should not appear in changelog.
+func isSkipCommit(title string) bool {
+	lower := strings.ToLower(title)
+	return strings.Contains(lower, "[skip ci]") ||
+		strings.Contains(lower, "chore: release") ||
+		strings.HasPrefix(lower, "release ")
 }
 
 func categorizeOne(c CommitInfo, cats Categories) string {
@@ -79,28 +93,70 @@ func categorizeOne(c CommitInfo, cats Categories) string {
 }
 
 // GenerateNotes renders the release markdown for a given version.
+// Includes commit links, PR links, and a PR summary table.
 func GenerateNotes(version string, categories []Category, prevVersion, repo string) string {
 	var sb strings.Builder
 
 	date := time.Now().Format("2006-01-02")
 	sb.WriteString(fmt.Sprintf("## %s — %s\n\n", version, date))
 
+	// ── Categorized entries with commit + PR links ─────────────────
 	for _, cat := range categories {
 		sb.WriteString(fmt.Sprintf("### %s %s\n", cat.Emoji, cat.Name))
 		for _, c := range cat.Commits {
 			line := cleanTitle(c.Title)
+			entry := "- " + line
+
+			// Add PR link
 			if c.PRNumber > 0 {
-				sb.WriteString(fmt.Sprintf("- %s ([#%d](https://github.com/%s/pull/%d))\n",
-					line, c.PRNumber, repo, c.PRNumber))
-			} else {
-				sb.WriteString(fmt.Sprintf("- %s\n", line))
+				entry += fmt.Sprintf(" ([#%d](https://github.com/%s/pull/%d))", c.PRNumber, repo, c.PRNumber)
 			}
+
+			// Add commit link — always include short SHA
+			if c.SHA != "" {
+				short := c.SHA
+				if len(short) > 7 {
+					short = short[:7]
+				}
+				entry += fmt.Sprintf(" — [`%s`](https://github.com/%s/commit/%s)", short, repo, c.SHA)
+			}
+
+			sb.WriteString(entry + "\n")
 		}
 		sb.WriteString("\n")
 	}
 
-	if prevVersion != "" && prevVersion != "v0.0.0" {
-		sb.WriteString(fmt.Sprintf("**Full changelog:** [`%s...%s`](https://github.com/%s/compare/%s...%s)\n",
+	// ── PR summary table ───────────────────────────────────────────
+	var prCommits []CommitInfo
+	seen := map[int]bool{}
+	for _, cat := range categories {
+		for _, c := range cat.Commits {
+			if c.PRNumber > 0 && !seen[c.PRNumber] {
+				seen[c.PRNumber] = true
+				prCommits = append(prCommits, c)
+			}
+		}
+	}
+
+	if len(prCommits) > 0 {
+		sb.WriteString("---\n\n")
+		sb.WriteString("### 📋 Pull Requests\n\n")
+		sb.WriteString("| PR | Title | Author |\n")
+		sb.WriteString("|----|-------|--------|\n")
+		for _, c := range prCommits {
+			author := ""
+			if c.Author != "" {
+				author = "@" + c.Author
+			}
+			sb.WriteString(fmt.Sprintf("| [#%d](https://github.com/%s/pull/%d) | %s | %s |\n",
+				c.PRNumber, repo, c.PRNumber, cleanTitle(c.Title), author))
+		}
+		sb.WriteString("\n")
+	}
+
+	// ── Full changelog link ────────────────────────────────────────
+	if prevVersion != "" && prevVersion != "v0.0.0" && prevVersion != "0.0.0" {
+		sb.WriteString(fmt.Sprintf("**Full changelog:** [`%s...%s`](https://github.com/%s/compare/%s...%s)\n\n",
 			prevVersion, version, repo, prevVersion, version))
 	}
 
@@ -111,13 +167,11 @@ func GenerateNotes(version string, categories []Category, prevVersion, repo stri
 func UpdateChangelog(dir, notes string) error {
 	path := filepath.Join(dir, "CHANGELOG.md")
 
-	// Read existing content
 	existing := ""
 	if b, err := os.ReadFile(path); err == nil {
 		existing = string(b)
 	}
 
-	// Find insertion point — after the header comment
 	insertMarker := "<!-- releases are appended here automatically by deploya release -->"
 	var newContent string
 
@@ -125,7 +179,6 @@ func UpdateChangelog(dir, notes string) error {
 		newContent = strings.Replace(existing, insertMarker,
 			insertMarker+"\n\n"+notes, 1)
 	} else {
-		// No marker — just prepend after first line
 		lines := strings.SplitN(existing, "\n", 2)
 		if len(lines) == 2 {
 			newContent = lines[0] + "\n\n" + notes + "\n" + lines[1]
@@ -138,7 +191,6 @@ func UpdateChangelog(dir, notes string) error {
 }
 
 // cleanTitle strips conventional commit prefix from title for display.
-// "feat: add discord" → "Add discord"
 func cleanTitle(title string) string {
 	prefixes := []string{
 		"feat!:", "fix!:", "chore!:",
@@ -148,18 +200,15 @@ func cleanTitle(title string) string {
 	lower := strings.ToLower(title)
 	for _, p := range prefixes {
 		if strings.HasPrefix(lower, p) {
-			// Find the colon and trim up to it
 			idx := strings.Index(title, ":")
 			if idx >= 0 && idx+2 < len(title) {
 				cleaned := strings.TrimSpace(title[idx+1:])
-				// Capitalize first letter
 				if len(cleaned) > 0 {
 					return strings.ToUpper(cleaned[:1]) + cleaned[1:]
 				}
 			}
 		}
 	}
-	// Capitalize first letter of original
 	if len(title) > 0 {
 		return strings.ToUpper(title[:1]) + title[1:]
 	}
