@@ -36,10 +36,10 @@ Flags:`)
 	fmt.Printf("   Branch       : %s\n", cfg.OnBranch)
 	fmt.Printf("   Archive      : %v\n", cfg.Archive)
 
-	// ── Check GITHUB_TOKEN ─────────────────────────────────────────
-	token := os.Getenv("GITHUB_TOKEN")
+	// ── Check GH_TOKEN ────────────────────────────────────────────
+	token := os.Getenv("GH_TOKEN")
 	if token == "" {
-		return fmt.Errorf("GITHUB_TOKEN environment variable is not set\nSet it with: export GITHUB_TOKEN=your_token")
+		return fmt.Errorf("GH_TOKEN environment variable is not set\nSet it with: export GH_TOKEN=your_token")
 	}
 
 	// ── Read git log ───────────────────────────────────────────────
@@ -113,12 +113,19 @@ Flags:`)
 		fmt.Println("   ✅ CHANGELOG.md updated")
 	}
 
-	// ── Create GitHub release ──────────────────────────────────────
-	// Strip version prefix before concatenating with tag_prefix
-	// e.g. tag_prefix="v" + version="v0.1.0" → strip to "0.1.0" → "v0.1.0"
+	// ── Calculate tag ──────────────────────────────────────────────
 	versionNoPrefix := strings.TrimPrefix(nextVer.String(), cfg.TagPrefix)
 	tag := cfg.TagPrefix + versionNoPrefix
 
+	// ── Create local tag and push ──────────────────────────────────
+	// This anchors the tag to the real commit in branch history
+	// so future git log ranges work correctly
+	fmt.Printf("\n🏷️  Creating tag %s...\n", tag)
+	if err := releaserc.CreateSignedTag(*dir, tag, fmt.Sprintf("Release %s", nextVer.String())); err != nil {
+		return fmt.Errorf("could not create tag: %w", err)
+	}
+
+	// ── Create GitHub release from existing tag ────────────────────
 	fmt.Printf("\n🚀 Creating GitHub release %s...\n", nextVer.String())
 	_, err = gh.CreateRelease(nextVer.String(), tag, notes)
 	if err != nil {
