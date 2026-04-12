@@ -10,6 +10,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## 0.4.0 — 2026-04-12
+
+### ✨ Features
+- Deploya add --job xxx command update — [`061f287`](https://github.com/kushalsubedi/deploya/commit/061f28744f4aed512b9ba0ca0666dfc7cc3d1ef3)
+
+**Full changelog:** [`0.3.0...0.4.0`](https://github.com/kushalsubedi/deploya/compare/0.3.0...0.4.0)
+
+
+
 ## 0.3.0 — 2026-04-12
 
 ### ✨ Features
