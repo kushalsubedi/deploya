@@ -1,6 +1,6 @@
 on_branch: main
 from_branch: dev
-current_version: 0.2.0
+current_version: 0.3.0
 tag_prefix: v
 registry: ghcr
 github_repo: kushalsubedi/deploya
