@@ -25,7 +25,6 @@ jobs:
   pr-validate:
     name: PR validation
     runs-on: ubuntu-latest
-    needs: [lint]
     if: github.event_name == 'pull_request'
 
     steps:
