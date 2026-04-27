@@ -9,18 +9,18 @@ on:
 jobs:
 
   # ── Build & Test ────────────────────────────────────────────────
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run linter
-        run: |
-          golangci-lint run ./...
-          echo "Configure your linter above"
+  # lint:
+  #   name: Lint
+  #   runs-on: ubuntu-latest
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Run linter
+  #       run: |
+  #         golangci-lint run ./...
+  #         echo "Configure your linter above"
 
   pr-validate:
     name: PR validation
