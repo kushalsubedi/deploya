@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## v0.4.1 — 2026-09-03
+
+### 🐛 Bug Fixes
+- Major ci issue fixed, zero config run setup — [`8c055b6`](https://github.com/kushalsubedi/deploya/commit/8c055b603dcf0ddff7ec2c55455f8c5d56177bec)
+
+### 🔧 Patches & Maintenance
+- Ci — [`41d447f`](https://github.com/kushalsubedi/deploya/commit/41d447fba02e304c4e75889d70242c401d5c5e9f)
+- Ci — [`4db3aed`](https://github.com/kushalsubedi/deploya/commit/4db3aedd15c6f95ee89e722e0b32cd1616d6452e)
+- Ci — [`645f1e0`](https://github.com/kushalsubedi/deploya/commit/645f1e0c4c0d882ee7c04df8daa24194b34c5d85)
+
+**Full changelog:** [`v0.4.0...v0.4.1`](https://github.com/kushalsubedi/deploya/compare/v0.4.0...v0.4.1)
+
+
+
 ## 0.4.0 — 2026-04-12
 
 ### ✨ Features
