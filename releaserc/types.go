@@ -12,7 +12,7 @@ type CommitInfo struct {
 
 // Category holds a group of commits under a release section.
 type Category struct {
-	Name    string       // e.g. "Features"
-	Emoji   string       // e.g. "✨"
+	Name    string // e.g. "Features"
+	Emoji   string // e.g. "✨"
 	Commits []CommitInfo
 }

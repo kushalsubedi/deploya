@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kushalsubedi/deploya/detector"
 )
 
 func runAdd(args []string) error {
@@ -18,15 +20,15 @@ func runAdd(args []string) error {
 Adds a new job to your existing pipeline.
 
 CI jobs (added to ci.yml):
-  lint              Language-specific linting (runs first)
+  lint              Language-specific linting
   pr-validate       PR title and label validation
   security          Trivy vulnerability scan
   dependency-review Scan PR dependencies for vulnerabilities
   codeql            GitHub CodeQL static analysis
-  stale             Auto-close stale issues and PRs
   notify-slack      Slack notification on failure
 
-Deploy jobs (added as separate workflow file):
+Standalone workflows (separate workflow file):
+  stale             Auto-close stale issues and PRs (daily schedule)
   deploy-ec2        SSH deploy to AWS EC2
   deploy-ecs        Deploy to AWS ECS service
   deploy-k8s        Deploy to Kubernetes cluster
@@ -52,12 +54,12 @@ Examples:
 
 	switch *job {
 	// ── CI jobs → append to ci.yml ──────────────────────────────
-	case "lint", "security", "codeql", "pr-validate", "dependency-review", "stale", "notify-slack":
+	case "lint", "security", "codeql", "pr-validate", "dependency-review", "notify-slack":
 		return addToCIYml(*dir, *job)
 
-	// ── Deploy jobs → separate workflow file ─────────────────────
-	case "deploy-ec2", "deploy-ecs", "deploy-k8s":
-		return addDeployWorkflow(*dir, *job)
+	// ── Standalone workflows → separate workflow file ─────────────
+	case "stale", "deploy-ec2", "deploy-ecs", "deploy-k8s":
+		return addStandaloneWorkflow(*dir, *job)
 
 	default:
 		return fmt.Errorf("unknown job: %q\n\nRun 'deploya add --help' to see available jobs", *job)
@@ -77,7 +79,13 @@ func addToCIYml(dir, job string) error {
 		return fmt.Errorf("could not read ci.yml: %w", err)
 	}
 
-	snippet, secrets := ciJobSnippet(job)
+	// Duplicate job keys make the workflow invalid — refuse to add twice.
+	if strings.Contains(string(content), "\n  "+job+":") {
+		fmt.Printf("⚠️  Job '%s' already exists in ci.yml — skipping\n", job)
+		return nil
+	}
+
+	snippet, secrets := ciJobSnippet(dir, job)
 	updated := string(content) + snippet
 
 	if err := os.WriteFile(ciPath, []byte(updated), 0644); err != nil {
@@ -91,13 +99,13 @@ func addToCIYml(dir, job string) error {
 
 // ── Deploy workflow jobs ─────────────────────────────────────────────────────
 
-func addDeployWorkflow(dir, job string) error {
+func addStandaloneWorkflow(dir, job string) error {
 	workflowDir := filepath.Join(dir, ".github", "workflows")
 	if err := os.MkdirAll(workflowDir, 0755); err != nil {
 		return fmt.Errorf("could not create workflows directory: %w", err)
 	}
 
-	filename, content, secrets := deployWorkflowContent(job)
+	filename, content, secrets := standaloneWorkflowContent(dir, job)
 	outPath := filepath.Join(workflowDir, filename)
 
 	if _, err := os.Stat(outPath); err == nil {
@@ -116,7 +124,7 @@ func addDeployWorkflow(dir, job string) error {
 
 // ── CI job snippets ──────────────────────────────────────────────────────────
 
-func ciJobSnippet(job string) (snippet string, secrets []string) {
+func ciJobSnippet(dir, job string) (snippet string, secrets []string) {
 	switch job {
 	case "lint":
 		return `
@@ -143,14 +151,15 @@ func ciJobSnippet(job string) (snippet string, secrets []string) {
   pr-validate:
     name: PR validation
     runs-on: ubuntu-latest
-    needs: [lint]
     if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
 
     steps:
       - name: Validate PR title
         uses: amannn/action-semantic-pull-request@v5
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           types: |
             feat
@@ -167,21 +176,20 @@ func ciJobSnippet(job string) (snippet string, secrets []string) {
         run: |
           echo "❌ PR title contains WIP — please remove before merging"
           exit 1
-`, []string{"GH_TOKEN"}
+`, nil
 
 	case "security":
 		return `
   security:
     name: Security scan
     runs-on: ubuntu-latest
-    needs: [lint]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: "fs"
           scan-ref: "."
@@ -196,7 +204,6 @@ func ciJobSnippet(job string) (snippet string, secrets []string) {
   dependency-review:
     name: Dependency review
     runs-on: ubuntu-latest
-    needs: [lint]
     if: github.event_name == 'pull_request'
 
     steps:
@@ -214,9 +221,9 @@ func ciJobSnippet(job string) (snippet string, secrets []string) {
   codeql:
     name: CodeQL analysis
     runs-on: ubuntu-latest
-    needs: [lint, security]
     permissions:
       security-events: write
+      contents: read
 
     steps:
       - name: Checkout code
@@ -225,31 +232,13 @@ func ciJobSnippet(job string) (snippet string, secrets []string) {
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: go  # change to: python, javascript, java, ruby
+          languages: ` + codeqlLanguage(dir) + `
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v3
-`, nil
-
-	case "stale":
-		return `
-  stale:
-    name: Mark stale issues and PRs
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Stale
-        uses: actions/stale@v9
-        with:
-          stale-issue-message: "This issue has been inactive for 30 days and will be closed in 7 days."
-          stale-pr-message: "This PR has been inactive for 30 days and will be closed in 7 days."
-          stale-issue-label: "stale"
-          stale-pr-label: "stale"
-          days-before-stale: 30
-          days-before-close: 7
 `, nil
 
 	case "notify-slack":
@@ -297,16 +286,44 @@ func ciJobSnippet(job string) (snippet string, secrets []string) {
 	return "", nil
 }
 
-// ── Deploy workflow content ──────────────────────────────────────────────────
+// ── Standalone workflow content ──────────────────────────────────────────────
 
-func deployWorkflowContent(job string) (filename, content string, secrets []string) {
+func standaloneWorkflowContent(dir, job string) (filename, content string, secrets []string) {
+	ciName := ciWorkflowName(dir)
 	switch job {
+	case "stale":
+		return "stale.yml", `name: Close stale issues and PRs
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+
+jobs:
+  stale:
+    name: Mark stale issues and PRs
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Stale
+        uses: actions/stale@v9
+        with:
+          stale-issue-message: "This issue has been inactive for 30 days and will be closed in 7 days."
+          stale-pr-message: "This PR has been inactive for 30 days and will be closed in 7 days."
+          stale-issue-label: "stale"
+          stale-pr-label: "stale"
+          days-before-stale: 30
+          days-before-close: 7
+`, nil
+
 	case "deploy-ec2":
 		return "deploy-ec2.yml", `name: Deploy to EC2
 
 on:
   workflow_run:
-    workflows: ["CI — "]
+    workflows: ["` + ciName + `"]
     branches: [main]
     types: [completed]
 
@@ -340,7 +357,7 @@ jobs:
 
 on:
   workflow_run:
-    workflows: ["CI — "]
+    workflows: ["` + ciName + `"]
     branches: [main]
     types: [completed]
 
@@ -388,7 +405,7 @@ jobs:
 
 on:
   workflow_run:
-    workflows: ["CI — "]
+    workflows: ["` + ciName + `"]
     branches: [main]
     types: [completed]
 
@@ -425,6 +442,45 @@ jobs:
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// ciWorkflowName reads the workflow name from ci.yml so workflow_run
+// triggers reference an existing workflow. Falls back to "CI".
+func ciWorkflowName(dir string) string {
+	b, err := os.ReadFile(filepath.Join(dir, ".github", "workflows", "ci.yml"))
+	if err != nil {
+		return "CI"
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "name:") {
+			name := strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+			name = strings.Trim(name, `"'`)
+			if name != "" {
+				return name
+			}
+		}
+	}
+	return "CI"
+}
+
+// codeqlLanguage maps the detected project language to a CodeQL language id.
+func codeqlLanguage(dir string) string {
+	lang, _ := detector.DetectLanguage(dir)
+	switch lang {
+	case "go":
+		return "go"
+	case "python":
+		return "python"
+	case "node":
+		return "javascript-typescript"
+	case "java":
+		return "java-kotlin"
+	case "ruby":
+		return "ruby"
+	case "rust":
+		return "rust"
+	}
+	return "go  # change to: python, javascript-typescript, java-kotlin, ruby"
+}
+
 func printSecretHints(secrets []string) {
 	if len(secrets) == 0 {
 		return
@@ -433,12 +489,4 @@ func printSecretHints(secrets []string) {
 	for _, s := range secrets {
 		fmt.Printf("   • %s\n", s)
 	}
-}
-
-func fileContains(path, substr string) bool {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(b), substr)
 }

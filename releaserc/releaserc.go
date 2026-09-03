@@ -1,28 +1,30 @@
 package releaserc
 
 import (
-	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	OnBranch       string
-	FromBranch     string
-	CurrentVersion string
-	TagPrefix      string
-	Archive        bool
-	Registry       string
-	GithubRepo     string
-	Categories     Categories
+	OnBranch       string     `yaml:"on_branch"`
+	FromBranch     string     `yaml:"from_branch"`
+	CurrentVersion string     `yaml:"current_version"`
+	TagPrefix      string     `yaml:"tag_prefix"`
+	Archive        bool       `yaml:"archive"`
+	Registry       string     `yaml:"registry"`
+	GithubRepo     string     `yaml:"github_repo"`
+	Categories     Categories `yaml:"categories"`
 }
 
 type Categories struct {
-	Features []string
-	Fixes    []string
-	Patches  []string
-	Docs     []string
+	Features []string `yaml:"features"`
+	Fixes    []string `yaml:"fixes"`
+	Patches  []string `yaml:"patches"`
+	Docs     []string `yaml:"docs"`
 }
 
 func DefaultConfig() Config {
@@ -37,79 +39,22 @@ func DefaultConfig() Config {
 		Categories: Categories{
 			Features: []string{"feat", "feature"},
 			Fixes:    []string{"fix", "bugfix", "bug"},
-			Patches:  []string{"chore", "refactor", "pref", "improvement"},
+			Patches:  []string{"chore", "refactor", "perf", "improvement"},
 			Docs:     []string{"docs", "doc"},
 		},
 	}
 }
 
 func Load(dir string) (Config, error) {
-	path := dir + "/.releaserc"
-	f, err := os.Open(path)
+	path := filepath.Join(dir, ".releaserc")
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("could not open .releaserc: %w", err)
 	}
-	defer f.Close()
 
 	cfg := DefaultConfig()
-
-	scanner := bufio.NewScanner(f)
-	var currentSection string
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Skip empty lines and comments
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		// Detect section headers (e.g. "categories:")
-		if strings.HasSuffix(trimmed, ":") && !strings.Contains(trimmed, " ") {
-			currentSection = strings.TrimSuffix(trimmed, ":")
-			continue
-		}
-
-		// Parse list items under a section (e.g. "  features: [feat, feature]")
-		if currentSection == "categories" {
-			parseCategory(&cfg, trimmed)
-			continue
-		}
-
-		// Reset section when we hit a top-level key
-		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-			currentSection = ""
-		}
-
-		// Parse top-level key: value
-		parts := strings.SplitN(trimmed, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-
-		switch key {
-		case "on_branch":
-			cfg.OnBranch = val
-		case "from_branch":
-			cfg.FromBranch = val
-		case "current_version":
-			cfg.CurrentVersion = val
-		case "tag_prefix":
-			cfg.TagPrefix = val
-		case "archive":
-			cfg.Archive = val == "true"
-		case "registry":
-			cfg.Registry = val
-		case "github_repo":
-			cfg.GithubRepo = val
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return Config{}, fmt.Errorf("error reading .releaserc: %w", err)
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		return Config{}, fmt.Errorf(".releaserc is not valid YAML: %w", err)
 	}
 
 	if err := validate(cfg); err != nil {
@@ -121,14 +66,14 @@ func Load(dir string) (Config, error) {
 
 // Save writes the config back to .releaserc — used to update current_version after a release.
 func Save(dir string, cfg Config) error {
-	path := dir + "/.releaserc"
+	path := filepath.Join(dir, ".releaserc")
 
 	var sb strings.Builder
 	sb.WriteString("on_branch: " + cfg.OnBranch + "\n")
 	sb.WriteString("from_branch: " + cfg.FromBranch + "\n")
 	sb.WriteString("current_version: " + cfg.CurrentVersion + "\n")
 	sb.WriteString("tag_prefix: " + cfg.TagPrefix + "\n")
-	// sb.WriteString("archive: " + boolStr(cfg.Archive) + "\n")
+	sb.WriteString(fmt.Sprintf("archive: %v\n", cfg.Archive))
 	sb.WriteString("registry: " + cfg.Registry + "\n")
 	sb.WriteString("github_repo: " + cfg.GithubRepo + "\n")
 	sb.WriteString("categories:\n")
@@ -138,36 +83,6 @@ func Save(dir string, cfg Config) error {
 	sb.WriteString("  docs: [" + strings.Join(cfg.Categories.Docs, ", ") + "]\n")
 
 	return os.WriteFile(path, []byte(sb.String()), 0o644)
-}
-
-func parseCategory(cfg *Config, line string) {
-	parts := strings.SplitN(line, ":", 2)
-	if len(parts) != 2 {
-		return
-	}
-	key := strings.TrimSpace(parts[0])
-	val := strings.TrimSpace(parts[1])
-
-	// Strip brackets
-	val = strings.Trim(val, "[]")
-	items := []string{}
-	for _, item := range strings.Split(val, ",") {
-		item = strings.TrimSpace(item)
-		if item != "" {
-			items = append(items, item)
-		}
-	}
-
-	switch key {
-	case "features":
-		cfg.Categories.Features = items
-	case "fixes":
-		cfg.Categories.Fixes = items
-	case "patches":
-		cfg.Categories.Patches = items
-	case "docs":
-		cfg.Categories.Docs = items
-	}
 }
 
 func validate(cfg Config) error {
@@ -182,10 +97,3 @@ func validate(cfg Config) error {
 	}
 	return nil
 }
-
-// func boolStr(b bool) string {
-// 	if b {
-// 		return "true"
-// 	}
-// 	return "false"
-// }

@@ -5,7 +5,10 @@ import (
 	"os"
 )
 
-// const version = "0.1.0"
+// Version is stamped at build time via:
+//
+//	go build -ldflags "-X github.com/kushalsubedi/deploya/cmd.Version=v1.2.3"
+var Version = "dev"
 
 const usage = `deploya — zero-config CI/CD pipeline generator
 
@@ -48,6 +51,9 @@ func Execute() error {
 	case "release":
 		return runRelease(os.Args[2:])
 
+	case "--version", "-v", "version":
+		fmt.Printf("deploya %s\n", Version)
+		return nil
 	case "--help", "help", "-h":
 		fmt.Print(usage)
 		return nil

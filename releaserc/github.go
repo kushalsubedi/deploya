@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -62,25 +61,14 @@ func (g *GitHub) EnrichCommits(commits []CommitInfo) ([]CommitInfo, error) {
 	return enriched, nil
 }
 
-// func CreateSignedTag(tag, message string) error {
-// 	cmd := exec.Command("git", "tag", "-s", tag, "-m", message)
-// 	cmd.Stdout = os.Stdout
-// 	cmd.Stderr = os.Stderr
-// 	return cmd.Run()
-// }
-
-// func PushTag(tag string) error {
-// 	cmd := exec.Command("git", "push", "origin", tag)
-// 	cmd.Stdout = os.Stdout
-// 	cmd.Stderr = os.Stderr
-// 	return cmd.Run()
-// }
-
 // CreateRelease creates a GitHub release and returns the release ID.
-func (g *GitHub) CreateRelease(version, tag, body string) (int64, error) {
+func (g *GitHub) CreateRelease(version, tag, body, branch string) (int64, error) {
+	if branch == "" {
+		branch = "main"
+	}
 	payload := map[string]interface{}{
 		"tag_name":         tag,
-		"target_commitish": "main",
+		"target_commitish": branch,
 		"name":             version,
 		"body":             body,
 		"draft":            false,
@@ -206,13 +194,4 @@ func (g *GitHub) post(url string, body []byte) (*http.Response, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	return g.client.Do(req)
-}
-
-// splitRepo splits "owner/repo" into owner and repo.
-func splitRepo(repo string) (string, string) {
-	parts := strings.SplitN(repo, "/", 2)
-	if len(parts) != 2 {
-		return "", repo
-	}
-	return parts[0], parts[1]
 }

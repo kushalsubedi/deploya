@@ -139,14 +139,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{secrets.GH_TOKEN}}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -164,7 +162,9 @@ jobs:
       - name: Run deploya release
         run: deploya release
         env:
-          GITHUB_TOKEN: ${{secrets.GH_TOKEN}}
+          # The built-in token works out of the box. Swap for a PAT
+          # (secrets.GH_TOKEN) if the release commit must retrigger workflows.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 `
 }
 

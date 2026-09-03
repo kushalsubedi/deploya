@@ -16,7 +16,7 @@ func runRelease(args []string) error {
 	fs.Usage = func() {
 		fmt.Println(`Usage: deploya release [flags]
 
-Reads .releaserc, bumps version, generates changelog and publishes a GitHub releaserc.
+Reads .releaserc, bumps version, generates changelog and publishes a GitHub release.
 
 Flags:`)
 		fs.PrintDefaults()
@@ -36,10 +36,13 @@ Flags:`)
 	fmt.Printf("   Branch       : %s\n", cfg.OnBranch)
 	fmt.Printf("   Archive      : %v\n", cfg.Archive)
 
-	// ── Check GH_TOKEN ────────────────────────────────────────────
+	// ── Check token (GH_TOKEN or GITHUB_TOKEN) ────────────────────
 	token := os.Getenv("GH_TOKEN")
 	if token == "" {
-		return fmt.Errorf("GH_TOKEN environment variable is not set\nSet it with: export GH_TOKEN=your_token")
+		token = os.Getenv("GITHUB_TOKEN")
+	}
+	if token == "" {
+		return fmt.Errorf("no GitHub token found\nSet GH_TOKEN (or GITHUB_TOKEN) with: export GH_TOKEN=your_token")
 	}
 
 	// ── Read git log ───────────────────────────────────────────────
@@ -62,7 +65,7 @@ Flags:`)
 	}
 
 	if len(commits) == 0 {
-		fmt.Println("\n⚠️  No commits since last releaserc. Nothing to releaserc.")
+		fmt.Println("\n⚠️  No commits since last release. Nothing to release.")
 		return nil
 	}
 	fmt.Printf("   Commits found: %d\n", len(commits))
@@ -79,21 +82,36 @@ Flags:`)
 	}
 
 	// ── Determine version bump ─────────────────────────────────────
+	// The latest reachable git tag is the source of truth; .releaserc's
+	// current_version is only a fallback for the first release.
 	bump := releaserc.DetermineBump(commits)
 	currentVer, err := releaserc.ParseVersion(cfg.CurrentVersion)
 	if err != nil {
 		return fmt.Errorf("invalid current_version in .releaserc: %w", err)
 	}
+	if latestTag != "" {
+		bare := strings.TrimPrefix(latestTag, cfg.TagPrefix)
+		if tagVer, tagErr := releaserc.ParseVersion(bare); tagErr == nil {
+			if cfg.TagPrefix+trimVerPrefix(cfg.CurrentVersion, cfg.TagPrefix) != latestTag {
+				fmt.Printf("   ⚠️  .releaserc says %s but latest tag is %s — using the tag\n", cfg.CurrentVersion, latestTag)
+			}
+			currentVer = tagVer
+		}
+	}
 	nextVer := currentVer.Bump(bump)
 
+	// ── Calculate tags up front so notes and links stay consistent ─
+	tag := cfg.TagPrefix + trimVerPrefix(nextVer.String(), cfg.TagPrefix)
+	prevTag := latestTag
+
 	fmt.Printf("\n📈 Version bump : %s\n", bump)
-	fmt.Printf("   %s → %s\n", currentVer.String(), nextVer.String())
+	fmt.Printf("   %s → %s\n", currentVer.String(), tag)
 
 	// ── Categorize commits ─────────────────────────────────────────
 	categories := releaserc.CategorizeCommits(commits, cfg.Categories)
 
 	// ── Generate release notes ─────────────────────────────────────
-	notes := releaserc.GenerateNotes(nextVer.String(), categories, currentVer.String(), cfg.GithubRepo)
+	notes := releaserc.GenerateNotes(tag, categories, prevTag, cfg.GithubRepo)
 
 	fmt.Println("\n📝 Release notes preview:")
 	fmt.Println(repeat("─", 52))
@@ -113,21 +131,17 @@ Flags:`)
 		fmt.Println("   ✅ CHANGELOG.md updated")
 	}
 
-	// ── Calculate tag ──────────────────────────────────────────────
-	versionNoPrefix := strings.TrimPrefix(nextVer.String(), cfg.TagPrefix)
-	tag := cfg.TagPrefix + versionNoPrefix
-
 	// ── Create local tag and push ──────────────────────────────────
 	// This anchors the tag to the real commit in branch history
 	// so future git log ranges work correctly
 	fmt.Printf("\n🏷️  Creating tag %s...\n", tag)
-	if err := releaserc.CreateSignedTag(*dir, tag, fmt.Sprintf("Release %s", nextVer.String())); err != nil {
+	if err := releaserc.CreateSignedTag(*dir, tag, fmt.Sprintf("Release %s", tag)); err != nil {
 		return fmt.Errorf("could not create tag: %w", err)
 	}
 
 	// ── Create GitHub release from existing tag ────────────────────
-	fmt.Printf("\n🚀 Creating GitHub release %s...\n", nextVer.String())
-	_, err = gh.CreateRelease(nextVer.String(), tag, notes)
+	fmt.Printf("\n🚀 Creating GitHub release %s...\n", tag)
+	_, err = gh.CreateRelease(tag, tag, notes, cfg.OnBranch)
 	if err != nil {
 		return fmt.Errorf("could not create GitHub release: %w", err)
 	}
@@ -135,17 +149,17 @@ Flags:`)
 
 	// ── Update .releaserc with new version ─────────────────────────
 	fmt.Println("\n💾 Updating .releaserc...")
-	cfg.CurrentVersion = nextVer.String()
+	cfg.CurrentVersion = tag
 	if err := releaserc.Save(*dir, cfg); err != nil {
 		fmt.Printf("   ⚠️  Could not update .releaserc: %v\n", err)
 	} else {
-		fmt.Println("   ✅ current_version updated to", nextVer.String())
+		fmt.Println("   ✅ current_version updated to", tag)
 	}
 
 	// ── Commit and push .releaserc + CHANGELOG.md ──────────────────
 	fmt.Println("\n📤 Committing release files...")
 	filesToCommit := []string{".releaserc", "CHANGELOG.md"}
-	msg := fmt.Sprintf("chore: release %s [skip ci]", nextVer.String())
+	msg := fmt.Sprintf("chore: release %s [skip ci]", tag)
 	if err := releaserc.CommitAndPush(*dir, msg, filesToCommit); err != nil {
 		fmt.Printf("   ⚠️  Could not commit release files: %v\n", err)
 	} else {
@@ -154,9 +168,9 @@ Flags:`)
 
 	// ── Final summary ──────────────────────────────────────────────
 	fmt.Println("\n" + repeat("─", 52))
-	fmt.Printf("  🎉 Released %s successfully!\n", nextVer.String())
+	fmt.Printf("  🎉 Released %s successfully!\n", tag)
 	fmt.Println(repeat("─", 52))
-	fmt.Printf("\n  📦 Version   : %s\n", nextVer.String())
+	fmt.Printf("\n  📦 Version   : %s\n", tag)
 	fmt.Printf("  🔖 Tag       : %s\n", tag)
 	fmt.Printf("  📝 Changelog : CHANGELOG.md\n")
 	fmt.Printf("  🔗 Release   : https://github.com/%s/releases/tag/%s\n",
@@ -164,6 +178,16 @@ Flags:`)
 	fmt.Println()
 
 	return nil
+}
+
+// trimVerPrefix strips the configured tag prefix (and a plain leading "v")
+// so the prefix can be re-applied exactly once regardless of how
+// current_version was written.
+func trimVerPrefix(v, tagPrefix string) string {
+	if tagPrefix != "" {
+		v = strings.TrimPrefix(v, tagPrefix)
+	}
+	return strings.TrimPrefix(v, "v")
 }
 
 func countPRs(commits []releaserc.CommitInfo) int {

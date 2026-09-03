@@ -93,8 +93,9 @@ func categorizeOne(c CommitInfo, cats Categories) string {
 }
 
 // GenerateNotes renders the release markdown for a given version.
-// Includes commit links, PR links, and a PR summary table.
-func GenerateNotes(version string, categories []Category, prevVersion, repo string) string {
+// version and prevTag must both be tag names (e.g. "v1.2.3") so that
+// the compare link resolves. prevTag may be empty for the first release.
+func GenerateNotes(version string, categories []Category, prevTag, repo string) string {
 	var sb strings.Builder
 
 	date := time.Now().Format("2006-01-02")
@@ -155,9 +156,9 @@ func GenerateNotes(version string, categories []Category, prevVersion, repo stri
 	}
 
 	// ── Full changelog link ────────────────────────────────────────
-	if prevVersion != "" && prevVersion != "v0.0.0" && prevVersion != "0.0.0" {
+	if prevTag != "" && prevTag != "v0.0.0" && prevTag != "0.0.0" {
 		sb.WriteString(fmt.Sprintf("**Full changelog:** [`%s...%s`](https://github.com/%s/compare/%s...%s)\n\n",
-			prevVersion, version, repo, prevVersion, version))
+			prevTag, version, repo, prevTag, version))
 	}
 
 	return sb.String()
@@ -194,8 +195,9 @@ func UpdateChangelog(dir, notes string) error {
 func cleanTitle(title string) string {
 	prefixes := []string{
 		"feat!:", "fix!:", "chore!:",
-		"feat:", "fix:", "chore:", "docs:", "perf:", "refactor:",
-		"feat(", "fix(", "chore(", "docs(", "perf(",
+		"feat:", "fix:", "chore:", "docs:", "doc:", "perf:", "refactor:",
+		"test:", "ci:", "build:", "style:",
+		"feat(", "fix(", "chore(", "docs(", "perf(", "refactor(", "test(", "ci(",
 	}
 	lower := strings.ToLower(title)
 	for _, p := range prefixes {
