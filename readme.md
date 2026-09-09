@@ -5,6 +5,7 @@
 - It will generate basic jobs like test, build, notification to your corporate messaging app (e.g. Slack, Discord, or your boss's email if required)
 - Generates a build summary of CI runs
 - Generates Release pipeline for your product semantic github release
+- Creates beautiful GitHub Pull Requests (`deploya pr`) containing all unmerged commits from your branch, with AI summaries powered by Google Gemini (free API key available)
 
 ## Why?
 Because we hate creating `ci.yml` and sometimes a basic one will also work. Yet it can be upgraded to handle some repetitive tasks.
@@ -53,7 +54,7 @@ env:
 
 jobs:
 
-  # ── Build & Test ────────────────────────────────────────────────
+  # ── Build & Test ────────────────────────────────────────────
   test:
     name: Build & Test
     runs-on: ubuntu-latest
@@ -82,7 +83,7 @@ jobs:
       
 
   
-  # ── Docker Build & Push ───────────────────────────────────────────
+  # ── Docker Build & Push ─────────────────────────────────────
   docker:
     name: Build & Push Docker image
     runs-on: ubuntu-latest
@@ -115,7 +116,7 @@ jobs:
       
   
 
-  # ── Notify ────────────────────────────────────────────────────────
+  # ── Notify ──────────────────────────────────────────────────
   
   notify:
     name: Discord Notification
@@ -143,7 +144,7 @@ jobs:
 
   
 
-  # ── Summary ───────────────────────────────────────────────────────
+  # ── Summary ─────────────────────────────────────────────────
   summary:
     name: Summary
     runs-on: ubuntu-latest
@@ -169,6 +170,32 @@ jobs:
           echo "| 🐳 Docker | ${{ needs.docker.result }} |" >> $GITHUB_STEP_SUMMARY
           
 ```
+
+# Create Beautiful Pull Requests with AI (`deploya pr`)
+
+Create stunning GitHub Pull Requests directly from your terminal!
+
+```bash
+# Run on any feature branch:
+deploya pr
+
+# Common options:
+deploya pr --base main --draft     # Open a draft PR against main
+deploya pr --dry-run               # Preview title & body without opening PR
+deploya pr -y                      # Non-interactive / skip confirmation prompt
+deploya pr --web                   # Open PR in your browser after creation
+```
+
+### ✨ Features:
+- **Automatic Unmerged Commits Range:** Identifies all commits from your current branch that haven't been merged into the base branch (`origin/<base>..HEAD`).
+- **AI-Powered with Google Gemini:** Automatically generates professional, comprehensive PR titles and descriptions with an Overview, Key Changes, Architectural Notes, and Review Checklists.
+- **Free Gemini API Support:** Google Gemini API keys are 100% free with generous tier limits from [Google AI Studio](https://aistudio.google.com). Export it in your shell:
+  ```bash
+  export GEMINI_API_KEY=your_free_gemini_api_key
+  ```
+- **Built-in Fallback Generator:** If no AI key is provided, Deploya formats a beautiful conventional-commits categorized description with git diff stats and review checklists.
+- **Auto Push Check:** Checks if your local branch is ahead of remote `origin` and automatically pushes it before submitting the PR to GitHub.
+- **GitHub Auth:** Reads `GH_TOKEN`, `GITHUB_TOKEN`, or seamlessly authenticates via the GitHub CLI (`gh auth login`).
 
 # If you want to generate release without any pain 
 Create a `.releaserc` file in your working directory with following Basic config and let `deploya init` do the job for you !!

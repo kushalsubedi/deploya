@@ -21,6 +21,7 @@ Commands:
   preview     Dry-run: print the pipeline to stdout without writing files
   add         Add a new job or step to an existing pipeline
   release     Cut a new release — bump version, generate changelog, publish to GitHub
+  pr          Create a GitHub Pull Request with unmerged commits and AI summary
 
 Flags:
   --version   Print version and exit
@@ -31,6 +32,9 @@ Examples:
   deploya preview
   deploya validate
   deploya add --job deploy
+  deploya pr
+  deploya pr --base main --draft
+  deploya pr --dry-run
 `
 
 func Execute() error {
@@ -50,6 +54,8 @@ func Execute() error {
 		return runAdd(os.Args[2:])
 	case "release":
 		return runRelease(os.Args[2:])
+	case "pr":
+		return runPR(os.Args[2:])
 
 	case "--version", "-v", "version":
 		fmt.Printf("deploya %s\n", Version)
