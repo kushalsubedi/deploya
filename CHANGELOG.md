@@ -10,6 +10,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## v0.5.0 — 2026-09-09
+
+### ✨ Features
+- AI to generate PR from unmerged commits in the brancg — [`235cd8e`](https://github.com/kushalsubedi/deploya/commit/235cd8ed32ce5f56280db952fde73b4e0560fa3b)
+
+**Full changelog:** [`v0.4.1...v0.5.0`](https://github.com/kushalsubedi/deploya/compare/v0.4.1...v0.5.0)
+
+
+
 ## v0.4.1 — 2026-09-03
 
 ### 🐛 Bug Fixes
