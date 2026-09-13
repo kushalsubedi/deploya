@@ -13,6 +13,13 @@ import (
 	"github.com/kushalsubedi/deploya/prompt"
 )
 
+// runPR handles the 'deploya pr' command:
+// 1. Detects repository, head branch, and base branch
+// 2. Extracts unmerged commits
+// 3. Generates concise PR title and markdown (using Gemini AI if available)
+// 4. Shows preview and asks for confirmation
+// 5. Verifies/pushes local branch to remote
+// 6. Creates the pull request on GitHub
 func runPR(args []string) error {
 	fs := flag.NewFlagSet("pr", flag.ExitOnError)
 	dir := fs.String("dir", ".", "Project directory")
@@ -45,46 +52,48 @@ Flags:`)
 
 	autoConfirm := *yes || *y
 
-	// ── 1. Resolve Repository ───────────────────────────────────
+	// ── 1. Detect Repository ───────────────────────────────────────────────
 	repo := *repoFlag
 	if repo == "" {
 		detectedRepo, err := pr.DetectRepo(*dir)
 		if err != nil {
-			return fmt.Errorf("could not detect repository: %w\nSpecify with --repo owner/repo", err)
+			return fmt.Errorf("could not determine GitHub repository: %w\nSpecify with --repo owner/repo", err)
 		}
 		repo = detectedRepo
 	}
 
-	// ── 2. Resolve Head Branch ──────────────────────────────────
+	// ── 2. Determine Head & Base Branches ──────────────────────────────────
 	head := *headFlag
 	if head == "" {
-		detectedHead, err := pr.CurrentBranch(*dir)
+		current, err := pr.CurrentBranch(*dir)
 		if err != nil {
-			return fmt.Errorf("could not determine current branch: %w\nSpecify with --head <branch>", err)
+			return fmt.Errorf("could not determine current git branch: %w", err)
 		}
-		head = detectedHead
+		head = current
 	}
 
-	// ── 3. Resolve Base Branch ──────────────────────────────────
 	base := *baseFlag
 	if base == "" {
 		detectedBase, err := pr.DefaultBaseBranch(*dir)
 		if err != nil {
-			base = "main"
-		} else {
-			base = detectedBase
+			return fmt.Errorf("could not determine base branch: %w\nSpecify with --base <branch>", err)
 		}
+		base = detectedBase
 	}
 
-	if head == base {
-		return fmt.Errorf("current branch %q is the same as base branch %q\nSwitch to a feature branch or specify --base / --head", head, base)
+	// Clean up branch names (remove refs/heads/ or origin/ prefixes for comparison)
+	cleanHead := strings.TrimPrefix(strings.TrimPrefix(head, "refs/heads/"), "origin/")
+	cleanBase := strings.TrimPrefix(strings.TrimPrefix(base, "refs/heads/"), "origin/")
+
+	if cleanHead == cleanBase {
+		return fmt.Errorf("current branch %q is the same as base branch %q\nSwitch to a feature branch or specify --base / --head", cleanHead, cleanBase)
 	}
 
-	// ── 4. Collect Unmerged Commits ─────────────────────────────
 	fmt.Printf("🔍 Repository   : %s\n", repo)
 	fmt.Printf("🌿 Source (HEAD): %s\n", head)
 	fmt.Printf("🎯 Target (BASE): %s\n", base)
 
+	// ── 3. Check for Unmerged Commits ──────────────────────────────────────
 	commits, err := pr.UnmergedCommits(*dir, base, head)
 	if err != nil {
 		return fmt.Errorf("could not retrieve unmerged commits: %w", err)
@@ -105,11 +114,10 @@ Flags:`)
 		fmt.Printf("   • %s %s\n", c.Short, c.Title)
 	}
 
-	// ── 5. Collect Diff Stats ───────────────────────────────────
-	diffStat, _ := pr.DiffStat(*dir, base, head)
-	diffPatch, _ := pr.DiffPatch(*dir, base, head, 30000)
+	// ── 4. Collect Diff for AI Context ─────────────────────────────────────
+	diffPatch, _ := pr.DiffPatch(*dir, base, head, 25000)
 
-	// ── 6. Generate PR Title & Description ──────────────────────
+	// ── 5. Generate PR Title & Description ─────────────────────────────────
 	var content pr.PRContent
 
 	// Check if title or body was explicitly passed
@@ -121,15 +129,15 @@ Flags:`)
 		useAI := !*noAI && aiClient.IsAvailable()
 
 		if useAI {
-			fmt.Println("\n🤖 Generating beautiful PR with Gemini AI...")
-			ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+			fmt.Println("\n🤖 Generating concise, beautiful PR with Gemini AI...")
+			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 			defer cancel()
 
-			aiContent, err := aiClient.GeneratePR(ctx, repo, head, base, commits, diffStat, diffPatch)
+			aiContent, err := aiClient.GeneratePR(ctx, repo, head, base, commits, "", diffPatch)
 			if err != nil {
 				fmt.Printf("   ⚠️  AI generation failed: %v\n", err)
 				fmt.Println("   Falling back to built-in PR template...")
-				content = pr.GenerateMarkdown(head, base, repo, commits, diffStat)
+				content = pr.GenerateMarkdown(head, base, repo, commits, "")
 			} else {
 				content = *aiContent
 				fmt.Println("   ✨ AI generation completed!")
@@ -139,7 +147,7 @@ Flags:`)
 			if !*noAI && !aiClient.IsAvailable() {
 				fmt.Println("   💡 Tip: Set GEMINI_API_KEY (free at https://aistudio.google.com) for AI-powered summaries!")
 			}
-			content = pr.GenerateMarkdown(head, base, repo, commits, diffStat)
+			content = pr.GenerateMarkdown(head, base, repo, commits, "")
 		}
 
 		if *titleFlag != "" {
@@ -150,7 +158,7 @@ Flags:`)
 		}
 	}
 
-	// ── 7. Preview PR ───────────────────────────────────────────
+	// ── 6. Preview PR ──────────────────────────────────────────────────────
 	sep := strings.Repeat("─", 54)
 	fmt.Printf("\n%s\n", sep)
 	fmt.Printf("📝 Pull Request Preview\n")
@@ -164,7 +172,7 @@ Flags:`)
 		return nil
 	}
 
-	// ── 8. Check Remote Push Status ─────────────────────────────
+	// ── 7. Check Remote Push Status ────────────────────────────────────────
 	pushed, _ := pr.IsBranchPushed(*dir, head)
 	if !pushed {
 		if *autoPush {
@@ -178,13 +186,13 @@ Flags:`)
 		}
 	}
 
-	// ── 9. Resolve GitHub Token ─────────────────────────────────
+	// ── 8. Resolve GitHub Token ────────────────────────────────────────────
 	token, err := pr.ResolveGitHubToken()
 	if err != nil {
 		return err
 	}
 
-	// ── 10. Confirmation ────────────────────────────────────────
+	// ── 9. Confirmation ───────────────────────────────────────────────────
 	if !autoConfirm {
 		if !prompt.Confirm("Ready to create pull request on GitHub?", true) {
 			fmt.Println("\nCancelled. PR was not created.")
@@ -192,7 +200,7 @@ Flags:`)
 		}
 	}
 
-	// ── 11. Create Pull Request on GitHub ───────────────────────
+	// ── 10. Create Pull Request on GitHub ──────────────────────────────────
 	fmt.Printf("\n🚀 Submitting Pull Request to %s...\n", repo)
 	gh := pr.NewGitHubClient(token)
 	res, err := gh.CreatePullRequest(repo, content.Title, head, base, content.Body, *draft)
@@ -211,7 +219,7 @@ Flags:`)
 	}
 	fmt.Println()
 
-	// ── 12. Open in Browser if Requested ────────────────────────
+	// ── 11. Open in Browser if Requested ───────────────────────────────────
 	if *openWeb {
 		_ = openBrowser(res.HTMLURL)
 	}

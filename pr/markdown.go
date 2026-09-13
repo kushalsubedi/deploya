@@ -5,47 +5,47 @@ import (
 	"strings"
 )
 
-// GenerateMarkdown creates a structured, aesthetic Pull Request description
-// from the unmerged commits and diff statistics without requiring an external AI service.
+// GenerateMarkdown builds a structured, beautiful PR description from commits.
+// It categorizes commits using conventional types and provides a clean overview
+// without dumping raw file change statistics.
 func GenerateMarkdown(head, base, repo string, commits []Commit, diffStat string) PRContent {
-	title := generateTitle(head, commits)
-	body := generateBody(head, base, repo, commits, diffStat)
+	title := generateTitle(head, base, commits)
+	body := generateBody(head, base, repo, commits)
 	return PRContent{
 		Title: title,
 		Body:  body,
 	}
 }
 
-func generateTitle(head string, commits []Commit) string {
+func generateTitle(head, base string, commits []Commit) string {
 	if len(commits) == 1 {
 		return commits[0].Title
 	}
 
-	// Determine dominant commit type
+	// Count commit types
 	typeCounts := make(map[string]int)
 	for _, c := range commits {
-		typeCounts[c.Type]++
+		t := c.Type
+		if t == "" {
+			t = "chore"
+		}
+		typeCounts[t]++
 	}
 
-	primaryType := "feat"
-	if typeCounts["fix"] > typeCounts["feat"] {
-		primaryType = "fix"
-	} else if typeCounts["refactor"] > typeCounts["feat"] {
-		primaryType = "refactor"
-	} else if typeCounts["docs"] > typeCounts["feat"] && len(typeCounts) == 1 {
-		primaryType = "docs"
-	} else if typeCounts["chore"] > typeCounts["feat"] && len(typeCounts) == 1 {
-		primaryType = "chore"
-	}
-
-	// Clean branch name for title
-	cleanBranch := head
-	for _, prefix := range []string{"feature/", "feat/", "fix/", "bugfix/", "hotfix/", "chore/", "refactor/"} {
-		if strings.HasPrefix(cleanBranch, prefix) {
-			cleanBranch = strings.TrimPrefix(cleanBranch, prefix)
-			break
+	primaryType := "chore"
+	maxCount := 0
+	for t, count := range typeCounts {
+		if count > maxCount {
+			maxCount = count
+			primaryType = t
 		}
 	}
+
+	cleanBranch := strings.TrimPrefix(head, "feature/")
+	cleanBranch = strings.TrimPrefix(cleanBranch, "feat/")
+	cleanBranch = strings.TrimPrefix(cleanBranch, "fix/")
+	cleanBranch = strings.TrimPrefix(cleanBranch, "bugfix/")
+	cleanBranch = strings.TrimPrefix(cleanBranch, "chore/")
 	cleanBranch = strings.ReplaceAll(cleanBranch, "-", " ")
 	cleanBranch = strings.ReplaceAll(cleanBranch, "_", " ")
 	cleanBranch = strings.TrimSpace(cleanBranch)
@@ -54,15 +54,14 @@ func generateTitle(head string, commits []Commit) string {
 		return fmt.Sprintf("%s: %s", primaryType, cleanBranch)
 	}
 
-	// If branch name isn't descriptive, summarize from first commit or commit count
 	if len(commits) > 0 {
 		return commits[0].Title
 	}
 
-	return fmt.Sprintf("merge %s into %s", head, head)
+	return fmt.Sprintf("merge %s into %s", head, base)
 }
 
-func generateBody(head, base, repo string, commits []Commit, diffStat string) string {
+func generateBody(head, base, repo string, commits []Commit) string {
 	var sb strings.Builder
 
 	sb.WriteString("## 🎯 Overview\n")
@@ -133,14 +132,6 @@ func generateBody(head, base, repo string, commits []Commit, diffStat string) st
 				c.Title, c.Short, repo, c.SHA))
 		}
 		sb.WriteString("\n")
-	}
-
-	// Diff stat summary if available
-	if diffStat != "" {
-		sb.WriteString("## 📊 Diff Summary\n\n")
-		sb.WriteString("```\n")
-		sb.WriteString(diffStat)
-		sb.WriteString("\n```\n\n")
 	}
 
 	// Verification checklist

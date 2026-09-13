@@ -60,9 +60,7 @@ func TestGenerateMarkdown(t *testing.T) {
 		},
 	}
 
-	diffStat := " cmd/pr.go | 120 +++++++++++++++++\n 1 file changed, 120 insertions(+)"
-
-	res := GenerateMarkdown("feature/pr-command", "main", "kushalsubedi/deploya", commits, diffStat)
+	res := GenerateMarkdown("feature/pr-command", "main", "kushalsubedi/deploya", commits, "")
 
 	if !strings.Contains(res.Title, "pr command") && !strings.Contains(res.Title, "feat") {
 		t.Errorf("Unexpected title: %q", res.Title)
@@ -83,8 +81,9 @@ func TestGenerateMarkdown(t *testing.T) {
 	if !strings.Contains(res.Body, "📝 Documentation") {
 		t.Errorf("Missing Documentation category")
 	}
-	if !strings.Contains(res.Body, "Diff Summary") {
-		t.Errorf("Missing Diff Summary section")
+	// Verify raw diff stat or git status file list is NOT present
+	if strings.Contains(res.Body, "Diff Summary") {
+		t.Errorf("Diff Summary section should not be included in concise PR")
 	}
 }
 
@@ -114,17 +113,42 @@ func TestParseGeminiPRResponse(t *testing.T) {
 		}
 	})
 
-	t.Run("Fallback Markdown", func(t *testing.T) {
-		raw := "# feat: support gemini PR generation\n\n## Overview\nAdds Gemini AI integration."
+	t.Run("JSON with unescaped literal newlines in body", func(t *testing.T) {
+		raw := "{\n  \"title\": \"feat(ui): add modern dashboard\",\n  \"body\": \"## 🎯 Overview\nAdds a new dashboard component.\n\n## ✨ Key Changes\n- Beautiful charts\"\n}"
 		content, err := ParseGeminiPRResponse(raw)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if content.Title != "feat: support gemini PR generation" {
-			t.Errorf("expected title 'feat: support gemini PR generation', got %q", content.Title)
+		if content.Title != "feat(ui): add modern dashboard" {
+			t.Errorf("expected title 'feat(ui): add modern dashboard', got %q", content.Title)
 		}
-		if !strings.Contains(content.Body, "Adds Gemini AI integration") {
-			t.Errorf("expected body to contain text, got %q", content.Body)
+		if !strings.Contains(content.Body, "Key Changes") {
+			t.Errorf("expected body to contain 'Key Changes', got %q", content.Body)
+		}
+	})
+
+	t.Run("Conversational text around JSON", func(t *testing.T) {
+		raw := "Here is your PR description:\n```json\n{\n  \"title\": \"refactor(core): streamline runner\",\n  \"body\": \"## 🎯 Overview\\nStreamlines core engine.\"\n}\n```\nLet me know if you need any adjustments!"
+		content, err := ParseGeminiPRResponse(raw)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if content.Title != "refactor(core): streamline runner" {
+			t.Errorf("expected title 'refactor(core): streamline runner', got %q", content.Title)
+		}
+	})
+
+	t.Run("Pure markdown without JSON", func(t *testing.T) {
+		raw := "# feat(cli): introduce interactive pr\n\n## 🎯 Overview\nProvides interactive PR generation."
+		content, err := ParseGeminiPRResponse(raw)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if content.Title != "feat(cli): introduce interactive pr" {
+			t.Errorf("expected title 'feat(cli): introduce interactive pr', got %q", content.Title)
+		}
+		if !strings.Contains(content.Body, "interactive PR generation") {
+			t.Errorf("expected body to contain overview text, got %q", content.Body)
 		}
 	})
 }
