@@ -56,7 +56,6 @@ func TestGeminiClient_GeneratePR(t *testing.T) {
 		httpClient: server.Client(),
 	}
 
-	// Override URL via client callModel or custom method
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -65,12 +64,15 @@ func TestGeminiClient_GeneratePR(t *testing.T) {
 	}
 
 	// Test prompt construction
-	prompt := buildPrompt("kushalsubedi/deploya", "feature/pr", "main", commits, "1 file changed", "diff content")
+	prompt := buildPrompt("kushalsubedi/deploya", "feature/pr", "main", commits, "diff content")
 	if !strings.Contains(prompt, "kushalsubedi/deploya") {
 		t.Errorf("prompt missing repository name")
 	}
 	if !strings.Contains(prompt, "feat: add pr command") {
 		t.Errorf("prompt missing commit message")
+	}
+	if !strings.Contains(prompt, "DO NOT list individual file names") {
+		t.Errorf("prompt missing instruction to avoid raw diff stat dump")
 	}
 
 	// Test parse response

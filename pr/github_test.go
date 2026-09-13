@@ -25,15 +25,24 @@ func TestGitHubClient_CreatePullRequest(t *testing.T) {
 				return
 			}
 
+			// Return actual GitHub API format with head/base as objects
 			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(PullRequestResult{
-				ID:      101,
-				Number:  42,
-				Title:   body["title"].(string),
-				HTMLURL: "https://github.com/kushalsubedi/deploya/pull/42",
-				State:   "open",
-				Head:    body["head"].(string),
-				Base:    body["base"].(string),
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":         101,
+				"number":     42,
+				"title":      body["title"].(string),
+				"html_url":   "https://github.com/kushalsubedi/deploya/pull/42",
+				"state":      "open",
+				"draft":      false,
+				"created_at": "2026-09-13T12:00:00Z",
+				"head": map[string]interface{}{
+					"ref": body["head"].(string),
+					"sha": "1234567890abcdef",
+				},
+				"base": map[string]interface{}{
+					"ref": body["base"].(string),
+					"sha": "abcdef1234567890",
+				},
 			})
 			return
 		}

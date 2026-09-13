@@ -12,46 +12,63 @@ import (
 	"time"
 )
 
-const githubAPIBase = "https://api.github.com"
+const (
+	githubAPIBase = "https://api.github.com"
+)
 
-// GitHubClient handles interaction with GitHub Pull Requests API.
+// GitHubClient handles communication with GitHub REST API for Pull Requests.
 type GitHubClient struct {
 	token      string
 	httpClient *http.Client
 }
 
-// NewGitHubClient creates a GitHub client with the given token.
+// ghPullResponse models GitHub's JSON response for pull request endpoints.
+type ghPullResponse struct {
+	ID        int64  `json:"id"`
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	HTMLURL   string `json:"html_url"`
+	State     string `json:"state"`
+	Draft     bool   `json:"draft"`
+	CreatedAt string `json:"created_at"`
+	Head      struct {
+		Ref string `json:"ref"`
+	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
+}
+
+// NewGitHubClient creates a new GitHub PR client with the provided personal access token.
 func NewGitHubClient(token string) *GitHubClient {
 	return &GitHubClient{
-		token:      token,
-		httpClient: &http.Client{Timeout: 20 * time.Second},
+		token:      strings.TrimSpace(token),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// ResolveGitHubToken attempts to read a GitHub token from:
-// 1. GH_TOKEN environment variable
-// 2. GITHUB_TOKEN environment variable
-// 3. GitHub CLI ('gh auth token')
+// ResolveGitHubToken attempts to locate a GitHub token from the environment
+// (GH_TOKEN or GITHUB_TOKEN) or falls back to querying the GitHub CLI (`gh auth token`).
 func ResolveGitHubToken() (string, error) {
-	if token := os.Getenv("GH_TOKEN"); token != "" {
-		return token, nil
+	if tok := os.Getenv("GH_TOKEN"); strings.TrimSpace(tok) != "" {
+		return strings.TrimSpace(tok), nil
 	}
-	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-		return token, nil
-	}
-
-	// Try reading token from gh CLI if available
-	if path, err := exec.LookPath("gh"); err == nil && path != "" {
-		out, err := exec.Command("gh", "auth", "token").Output()
-		if err == nil && strings.TrimSpace(string(out)) != "" {
-			return strings.TrimSpace(string(out)), nil
-		}
+	if tok := os.Getenv("GITHUB_TOKEN"); strings.TrimSpace(tok) != "" {
+		return strings.TrimSpace(tok), nil
 	}
 
-	return "", fmt.Errorf("no GitHub token found\nSet GH_TOKEN (or GITHUB_TOKEN) with: export GH_TOKEN=your_token\nor log in with the GitHub CLI: gh auth login")
+	// Try reading token from gh CLI if installed
+	cmd := exec.Command("gh", "auth", "token")
+	out, err := cmd.Output()
+	if err == nil && strings.TrimSpace(string(out)) != "" {
+		return strings.TrimSpace(string(out)), nil
+	}
+
+	return "", fmt.Errorf("no GitHub token found\n" +
+		"Please export GH_TOKEN (or GITHUB_TOKEN) or login via `gh auth login`")
 }
 
-// CreatePullRequest submits a new pull request to GitHub.
+// CreatePullRequest creates a new Pull Request on GitHub.
 func (g *GitHubClient) CreatePullRequest(repo, title, head, base, body string, draft bool) (*PullRequestResult, error) {
 	url := fmt.Sprintf("%s/repos/%s/pulls", githubAPIBase, repo)
 
@@ -65,7 +82,7 @@ func (g *GitHubClient) CreatePullRequest(repo, title, head, base, body string, d
 
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to encode request: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
@@ -87,11 +104,21 @@ func (g *GitHubClient) CreatePullRequest(repo, title, head, base, body string, d
 	}
 
 	if resp.StatusCode == http.StatusCreated {
-		var prResult PullRequestResult
-		if err := json.Unmarshal(respBody, &prResult); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
+		var pr ghPullResponse
+		if err := json.Unmarshal(respBody, &pr); err != nil {
+			return nil, fmt.Errorf("failed to decode GitHub PR response: %w", err)
 		}
-		return &prResult, nil
+		return &PullRequestResult{
+			ID:        pr.ID,
+			Number:    pr.Number,
+			Title:     pr.Title,
+			HTMLURL:   pr.HTMLURL,
+			State:     pr.State,
+			Draft:     pr.Draft,
+			Head:      pr.Head.Ref,
+			Base:      pr.Base.Ref,
+			CreatedAt: pr.CreatedAt,
+		}, nil
 	}
 
 	// If PR already exists, locate it
@@ -127,21 +154,7 @@ func (g *GitHubClient) FindExistingPR(repo, head, base string) (*PullRequestResu
 		return nil, fmt.Errorf("failed to list PRs: HTTP %d", resp.StatusCode)
 	}
 
-	var prs []struct {
-		ID      int64  `json:"id"`
-		Number  int    `json:"number"`
-		Title   string `json:"title"`
-		HTMLURL string `json:"html_url"`
-		State   string `json:"state"`
-		Draft   bool   `json:"draft"`
-		Head    struct {
-			Ref string `json:"ref"`
-		} `json:"head"`
-		Base struct {
-			Ref string `json:"ref"`
-		} `json:"base"`
-	}
-
+	var prs []ghPullResponse
 	if err := json.NewDecoder(resp.Body).Decode(&prs); err != nil {
 		return nil, err
 	}
@@ -149,14 +162,15 @@ func (g *GitHubClient) FindExistingPR(repo, head, base string) (*PullRequestResu
 	for _, p := range prs {
 		if p.Head.Ref == head {
 			return &PullRequestResult{
-				ID:      p.ID,
-				Number:  p.Number,
-				Title:   p.Title,
-				HTMLURL: p.HTMLURL,
-				State:   p.State,
-				Draft:   p.Draft,
-				Head:    p.Head.Ref,
-				Base:    p.Base.Ref,
+				ID:        p.ID,
+				Number:    p.Number,
+				Title:     p.Title,
+				HTMLURL:   p.HTMLURL,
+				State:     p.State,
+				Draft:     p.Draft,
+				Head:      p.Head.Ref,
+				Base:      p.Base.Ref,
+				CreatedAt: p.CreatedAt,
 			}, nil
 		}
 	}
@@ -168,5 +182,5 @@ func (g *GitHubClient) setHeaders(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+g.token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Deploya-CLI")
 }
