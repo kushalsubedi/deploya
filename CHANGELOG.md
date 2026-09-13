@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## v0.5.1 — 2026-09-13
+
+### 🐛 Bug Fixes
+- Deploya pr ([#7](https://github.com/kushalsubedi/deploya/pull/7)) — [`c494324`](https://github.com/kushalsubedi/deploya/commit/c49432457a73fb57b7dea9ec01080f4e297bbcf9)
+
+---
+
+### 📋 Pull Requests
+
+| PR | Title | Author |
+|----|-------|--------|
+| [#7](https://github.com/kushalsubedi/deploya/pull/7) | Deploya pr | @kushalsubedi |
+
+**Full changelog:** [`v0.5.0...v0.5.1`](https://github.com/kushalsubedi/deploya/compare/v0.5.0...v0.5.1)
+
+
+
 ## v0.5.0 — 2026-09-09
 
 ### ✨ Features
