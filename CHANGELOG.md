@@ -10,6 +10,32 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## v0.6.0 — 2026-09-14
+
+### ✨ Features
+- Release process include artifacts and versioned containers ([#8](https://github.com/kushalsubedi/deploya/pull/8)) — [`ab02cd8`](https://github.com/kushalsubedi/deploya/commit/ab02cd8233443f6bcbedec7114b5f63693c9fc16)
+
+---
+
+### 📋 Pull Requests
+
+| PR | Title | Author |
+|----|-------|--------|
+| [#8](https://github.com/kushalsubedi/deploya/pull/8) | Release process include artifacts and versioned containers | @kushalsubedi |
+
+### 📦 Assets
+
+- [deploya_v0.6.0_linux_amd64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v0.6.0/deploya_v0.6.0_linux_amd64.tar.gz)
+- [deploya_v0.6.0_linux_arm64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v0.6.0/deploya_v0.6.0_linux_arm64.tar.gz)
+- [deploya_v0.6.0_darwin_amd64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v0.6.0/deploya_v0.6.0_darwin_amd64.tar.gz)
+- [deploya_v0.6.0_darwin_arm64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v0.6.0/deploya_v0.6.0_darwin_arm64.tar.gz)
+- [deploya_v0.6.0_windows_amd64.zip](https://github.com/kushalsubedi/deploya/releases/download/v0.6.0/deploya_v0.6.0_windows_amd64.zip)
+- [checksums.txt](https://github.com/kushalsubedi/deploya/releases/download/v0.6.0/checksums.txt)
+
+**Full changelog:** [`v0.5.1...v0.6.0`](https://github.com/kushalsubedi/deploya/compare/v0.5.1...v0.6.0)
+
+
+
 ## v0.5.1 — 2026-09-13
 
 ### 🐛 Bug Fixes
