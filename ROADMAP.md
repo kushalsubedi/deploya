@@ -39,10 +39,12 @@ secrets to configure for the default path.
 
 ## v0.7 — Releases that deliver artifacts
 
-- **Implement `archive: true`** — it is currently accepted but does nothing.
-  Build a matrix (linux/darwin/windows × amd64/arm64) for Go projects and
-  upload archives via the existing `UploadAsset` (currently dead code), or
-  shell out to goreleaser when present.
+- ~~**Implement `archive: true`**~~ — done: Go projects get a
+  linux/darwin/windows × amd64/arm64 archive matrix (+ sha256 checksums)
+  uploaded via `UploadAsset`, and `registry: ghcr` + a Dockerfile pushes a
+  version-tagged image on release; both are linked from the release notes
+  and CHANGELOG.md. Still open: goreleaser passthrough, non-Go archives,
+  non-GHCR registries.
 - **`bump: none` path**: docs/chore-only pushes should be able to skip a
   release (configurable `release_on: [feat, fix]`).
 - **Ship deploya itself as binaries**: Homebrew tap, `go install`, and a
@@ -56,8 +58,8 @@ secrets to configure for the default path.
   `mise`/`asdf` tool-versions files.
 - More CI targets: GitLab CI and, later, Bitbucket — behind a `--target` flag
   with the same detector front-end.
-- Registry: implement the `registry` field in `.releaserc` (currently unused);
-  push a tagged image on release, not just on CI sha.
+- Registry: extend release-time image pushes beyond GHCR (dockerhub, ecr,
+  gcr) — ghcr is implemented in v0.7.
 - Non-interactive mode (`--yes` + flags for every prompt) so deploya itself is
   scriptable in CI.
 

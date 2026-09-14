@@ -107,11 +107,51 @@ Flags:`)
 	fmt.Printf("\n📈 Version bump : %s\n", bump)
 	fmt.Printf("   %s → %s\n", currentVer.String(), tag)
 
+	// ── Build release assets (binaries + container image) ──────────
+	// Built before the notes so the changelog links exactly what shipped.
+	assets := &releaserc.Assets{}
+
+	if cfg.Archive {
+		if *dryRun {
+			assets.Files = releaserc.PlanArchives(cfg.GithubRepo, tag)
+			fmt.Printf("\n📦 Would build %d binary archives (dry run)\n", len(assets.Files))
+		} else {
+			fmt.Println("\n📦 Building binary archives...")
+			files, err := releaserc.BuildArchives(*dir, cfg.GithubRepo, tag)
+			if err != nil {
+				fmt.Printf("   ⚠️  Could not build archives: %v\n", err)
+				fmt.Println("   Continuing without binary assets...")
+			} else {
+				assets.Files = files
+				for _, f := range files {
+					fmt.Printf("   ✅ %s\n", f.Name)
+				}
+			}
+		}
+	}
+
+	if ref := releaserc.PlanImageRef(*dir, cfg, tag); ref != "" {
+		if *dryRun {
+			assets.ImageRef = ref
+			fmt.Printf("\n🐳 Would push container image %s (dry run)\n", ref)
+		} else {
+			fmt.Printf("\n🐳 Building and pushing container image %s...\n", ref)
+			pushed, err := releaserc.BuildAndPushImage(*dir, cfg, tag, token)
+			if err != nil {
+				fmt.Printf("   ⚠️  Could not push image: %v\n", err)
+				fmt.Println("   Continuing without container asset...")
+			} else {
+				assets.ImageRef = pushed
+				fmt.Printf("   ✅ Pushed %s (and :latest)\n", pushed)
+			}
+		}
+	}
+
 	// ── Categorize commits ─────────────────────────────────────────
 	categories := releaserc.CategorizeCommits(commits, cfg.Categories)
 
 	// ── Generate release notes ─────────────────────────────────────
-	notes := releaserc.GenerateNotes(tag, categories, prevTag, cfg.GithubRepo)
+	notes := releaserc.GenerateNotes(tag, categories, prevTag, cfg.GithubRepo, assets)
 
 	fmt.Println("\n📝 Release notes preview:")
 	fmt.Println(repeat("─", 52))
@@ -141,11 +181,26 @@ Flags:`)
 
 	// ── Create GitHub release from existing tag ────────────────────
 	fmt.Printf("\n🚀 Creating GitHub release %s...\n", tag)
-	_, err = gh.CreateRelease(tag, tag, notes, cfg.OnBranch)
+	releaseID, err := gh.CreateRelease(tag, tag, notes, cfg.OnBranch)
 	if err != nil {
 		return fmt.Errorf("could not create GitHub release: %w", err)
 	}
 	fmt.Printf("   ✅ Release created: https://github.com/%s/releases/tag/%s\n", cfg.GithubRepo, tag)
+
+	// ── Upload binary archives to the release ──────────────────────
+	if len(assets.Files) > 0 {
+		fmt.Println("\n⬆️  Uploading release assets...")
+		for _, f := range assets.Files {
+			if f.Path == "" {
+				continue
+			}
+			if err := gh.UploadAsset(releaseID, f.Path); err != nil {
+				fmt.Printf("   ⚠️  Could not upload %s: %v\n", f.Name, err)
+			} else {
+				fmt.Printf("   ✅ %s\n", f.Name)
+			}
+		}
+	}
 
 	// ── Update .releaserc with new version ─────────────────────────
 	fmt.Println("\n💾 Updating .releaserc...")
@@ -173,6 +228,12 @@ Flags:`)
 	fmt.Printf("\n  📦 Version   : %s\n", tag)
 	fmt.Printf("  🔖 Tag       : %s\n", tag)
 	fmt.Printf("  📝 Changelog : CHANGELOG.md\n")
+	if len(assets.Files) > 0 {
+		fmt.Printf("  📦 Assets    : %d files\n", len(assets.Files))
+	}
+	if assets.ImageRef != "" {
+		fmt.Printf("  🐳 Image     : %s\n", assets.ImageRef)
+	}
 	fmt.Printf("  🔗 Release   : https://github.com/%s/releases/tag/%s\n",
 		cfg.GithubRepo, tag)
 	fmt.Println()

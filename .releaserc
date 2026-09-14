@@ -2,7 +2,7 @@ on_branch: main
 from_branch: dev
 current_version: v0.5.1
 tag_prefix: v
-archive: false
+archive: true
 registry: ghcr
 github_repo: kushalsubedi/deploya
 categories:

@@ -95,7 +95,8 @@ func categorizeOne(c CommitInfo, cats Categories) string {
 // GenerateNotes renders the release markdown for a given version.
 // version and prevTag must both be tag names (e.g. "v1.2.3") so that
 // the compare link resolves. prevTag may be empty for the first release.
-func GenerateNotes(version string, categories []Category, prevTag, repo string) string {
+// assets may be nil when the release ships no artifacts.
+func GenerateNotes(version string, categories []Category, prevTag, repo string, assets *Assets) string {
 	var sb strings.Builder
 
 	date := time.Now().Format("2006-01-02")
@@ -151,6 +152,31 @@ func GenerateNotes(version string, categories []Category, prevTag, repo string) 
 			}
 			sb.WriteString(fmt.Sprintf("| [#%d](https://github.com/%s/pull/%d) | %s | %s |\n",
 				c.PRNumber, repo, c.PRNumber, cleanTitle(c.Title), author))
+		}
+		sb.WriteString("\n")
+	}
+
+	// ── Assets: container image + binary downloads ─────────────────
+	if assets != nil && (assets.ImageRef != "" || len(assets.Files) > 0) {
+		sb.WriteString("### 📦 Assets\n\n")
+
+		if assets.ImageRef != "" {
+			// ghcr.io/owner/repo:tag → package page lives at
+			// github.com/owner/repo/pkgs/container/repo
+			name := assets.ImageRef
+			if i := strings.LastIndex(name, "/"); i >= 0 {
+				name = name[i+1:]
+			}
+			if i := strings.Index(name, ":"); i >= 0 {
+				name = name[:i]
+			}
+			sb.WriteString(fmt.Sprintf("- 🐳 Container image: [`%s`](https://github.com/%s/pkgs/container/%s) — `docker pull %s`\n",
+				assets.ImageRef, repo, name, assets.ImageRef))
+		}
+
+		for _, f := range assets.Files {
+			sb.WriteString(fmt.Sprintf("- [%s](https://github.com/%s/releases/download/%s/%s)\n",
+				f.Name, repo, version, f.Name))
 		}
 		sb.WriteString("\n")
 	}
