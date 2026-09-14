@@ -205,8 +205,8 @@ on_branch: main # on which branch you want release to take place
 from_branch: dev # this might not be needed as the product is under development
 current_version: 0.1.1 # your current release version or github tag, if it is initial keep it `0.0.0`
 tag_prefix: v # tag prefix eg: v0.0.1, or whatever prefix you want 
-archive: true # this is not needed, but this tool hasn't release it's first major so keep it until v1.0.0 of deploya 
-registry: ghcr # this is optional and feature is yet to come 
+archive: true # build cross-platform binary archives (Go projects) and attach them to the release
+registry: ghcr # push a container image tagged with the release version (needs a Dockerfile; ghcr only for now)
 github_repo: kushalsubedi/deploya # your github repo 
 categories:
 # release types and commit typos 

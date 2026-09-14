@@ -139,6 +139,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # needed so 'deploya release' can push the container image to GHCR
+      packages: write
 
     steps:
       - name: Checkout code
