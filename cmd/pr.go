@@ -16,7 +16,7 @@ import (
 // runPR handles the 'deploya pr' command:
 // 1. Detects repository, head branch, and base branch
 // 2. Extracts unmerged commits
-// 3. Generates concise PR title and markdown (using Gemini AI if available)
+// 3. Generates concise PR title and markdown (using Gemini AI or OpenRouter if available)
 // 4. Shows preview and asks for confirmation
 // 5. Verifies/pushes local branch to remote
 // 6. Creates the pull request on GitHub
@@ -33,7 +33,7 @@ func runPR(args []string) error {
 	yes := fs.Bool("yes", false, "Skip confirmation prompt")
 	y := fs.Bool("y", false, "Alias for --yes")
 	noAI := fs.Bool("no-ai", false, "Disable AI-generated PR summary")
-	geminiKey := fs.String("gemini-key", "", "Google Gemini API key (defaults to GEMINI_API_KEY env)")
+	geminiKey := fs.String("gemini-key", "", "AI API key: Google Gemini or OpenRouter (defaults to GEMINI_API_KEY env)")
 	autoPush := fs.Bool("push", true, "Automatically push branch to origin if unpushed")
 	openWeb := fs.Bool("web", false, "Open created PR in default web browser")
 
@@ -115,7 +115,7 @@ Flags:`)
 	}
 
 	// ── 4. Collect Diff for AI Context ─────────────────────────────────────
-	diffPatch, _ := pr.DiffPatch(*dir, base, head, 25000)
+	diffPatch, _ := pr.DiffPatch(*dir, base, head, 30000)
 
 	// ── 5. Generate PR Title & Description ─────────────────────────────────
 	var content pr.PRContent
@@ -129,8 +129,8 @@ Flags:`)
 		useAI := !*noAI && aiClient.IsAvailable()
 
 		if useAI {
-			fmt.Println("\n🤖 Generating concise, beautiful PR with Gemini AI...")
-			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+			fmt.Printf("\n🤖 Generating in-depth, narrative PR with %s...\n", aiClient.ProviderName())
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
 			defer cancel()
 
 			aiContent, err := aiClient.GeneratePR(ctx, repo, head, base, commits, "", diffPatch)
@@ -145,7 +145,7 @@ Flags:`)
 		} else {
 			fmt.Println("\n✨ Generating PR markdown from commit history...")
 			if !*noAI && !aiClient.IsAvailable() {
-				fmt.Println("   💡 Tip: Set GEMINI_API_KEY (free at https://aistudio.google.com) for AI-powered summaries!")
+				fmt.Println("   💡 Tip: Set GEMINI_API_KEY (free at https://aistudio.google.com) or OPENROUTER_API_KEY for AI-powered summaries!")
 			}
 			content = pr.GenerateMarkdown(head, base, repo, commits, "")
 		}
