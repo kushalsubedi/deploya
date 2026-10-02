@@ -1,6 +1,6 @@
 on_branch: main
 from_branch: dev
-current_version: v0.6.0
+current_version: v0.7.0
 tag_prefix: v
 archive: true
 registry: ghcr

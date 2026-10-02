@@ -10,6 +10,32 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## v0.7.0 — 2026-10-02
+
+### ✨ Features
+- Enhance release automation with AI-powered PR generation and artifact packaging ([#10](https://github.com/kushalsubedi/deploya/pull/10)) — [`dd20071`](https://github.com/kushalsubedi/deploya/commit/dd20071247c8cb437075be4950daef588d7bc66f)
+
+---
+
+### 📋 Pull Requests
+
+| PR | Title | Author |
+|----|-------|--------|
+| [#10](https://github.com/kushalsubedi/deploya/pull/10) | Enhance release automation with AI-powered PR generation and artifact packaging | @kushalsubedi |
+
+### 📦 Assets
+
+- [deploya_v0.7.0_linux_amd64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v0.7.0/deploya_v0.7.0_linux_amd64.tar.gz)
+- [deploya_v0.7.0_linux_arm64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v0.7.0/deploya_v0.7.0_linux_arm64.tar.gz)
+- [deploya_v0.7.0_darwin_amd64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v0.7.0/deploya_v0.7.0_darwin_amd64.tar.gz)
+- [deploya_v0.7.0_darwin_arm64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v0.7.0/deploya_v0.7.0_darwin_arm64.tar.gz)
+- [deploya_v0.7.0_windows_amd64.zip](https://github.com/kushalsubedi/deploya/releases/download/v0.7.0/deploya_v0.7.0_windows_amd64.zip)
+- [checksums.txt](https://github.com/kushalsubedi/deploya/releases/download/v0.7.0/checksums.txt)
+
+**Full changelog:** [`v0.6.0...v0.7.0`](https://github.com/kushalsubedi/deploya/compare/v0.6.0...v0.7.0)
+
+
+
 ## v0.6.0 — 2026-09-14
 
 ### ✨ Features
