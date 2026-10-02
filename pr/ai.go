@@ -14,19 +14,21 @@ import (
 )
 
 const (
-	defaultGeminiModel  = "gemini-2.0-flash"
+	defaultGeminiModel = "gemini-2.0-flash"
 	fallbackGeminiModel = "gemini-1.5-flash"
 	geminiBaseURL       = "https://generativelanguage.googleapis.com/v1beta/models"
+	openRouterBaseURL   = "https://openrouter.ai/api/v1/chat/completions"
+	openRouterModel     = "liquid/lfm-2.5-2.6b:free"
 )
 
-// GeminiClient interacts with Google Gemini's REST API.
+// GeminiClient interacts with Google Gemini or OpenRouter REST API.
 type GeminiClient struct {
 	apiKey     string
 	httpClient *http.Client
 }
 
 // NewGeminiClient initializes a client with the given API key.
-// If key is empty, it checks GEMINI_API_KEY and GOOGLE_API_KEY environment variables.
+// If key is empty, it checks GEMINI_API_KEY, GOOGLE_API_KEY, and OPENROUTER_API_KEY environment variables.
 func NewGeminiClient(key string) *GeminiClient {
 	if key == "" {
 		key = os.Getenv("GEMINI_API_KEY")
@@ -34,16 +36,27 @@ func NewGeminiClient(key string) *GeminiClient {
 	if key == "" {
 		key = os.Getenv("GOOGLE_API_KEY")
 	}
+	if key == "" {
+		key = os.Getenv("OPENROUTER_API_KEY")
+	}
 
 	return &GeminiClient{
 		apiKey:     strings.TrimSpace(key),
-		httpClient: &http.Client{Timeout: 45 * time.Second},
+		httpClient: &http.Client{Timeout: 50 * time.Second},
 	}
 }
 
 // IsAvailable returns true if an API key is present.
 func (c *GeminiClient) IsAvailable() bool {
 	return strings.TrimSpace(c.apiKey) != ""
+}
+
+// ProviderName returns the name of the AI service based on the API key prefix.
+func (c *GeminiClient) ProviderName() string {
+	if strings.HasPrefix(c.apiKey, "sk-or-") {
+		return "OpenRouter AI"
+	}
+	return "Gemini AI"
 }
 
 type geminiRequest struct {
@@ -82,20 +95,48 @@ type geminiResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// GeneratePR sends repository context, commits, and diff to Gemini AI
+type openRouterRequest struct {
+	Model       string              `json:"model"`
+	Messages    []openRouterMessage `json:"messages"`
+	Temperature float64             `json:"temperature"`
+}
+
+type openRouterMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type openRouterResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+	Error *struct {
+		Code    interface{} `json:"code"`
+		Message string      `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+// GeneratePR sends repository context, commits, and diff to Gemini AI or OpenRouter
 // and returns a thorough, rich, and comprehensive Pull Request description.
 func (c *GeminiClient) GeneratePR(ctx context.Context, repo, head, base string, commits []Commit, diffStat, diffPatch string) (*PRContent, error) {
 	if !c.IsAvailable() {
-		return nil, fmt.Errorf("gemini API key is not configured")
+		return nil, fmt.Errorf("AI API key is not configured")
 	}
 
 	prompt := buildPrompt(repo, head, base, commits, diffPatch)
 
-	// Try default model first, fallback to gemini-1.5-flash if needed
-	content, err := c.callModel(ctx, defaultGeminiModel, prompt)
+	// If key starts with "sk-or-", route through OpenRouter
+	if strings.HasPrefix(c.apiKey, "sk-or-") {
+		return c.callOpenRouter(ctx, prompt)
+	}
+
+	// Try default Gemini model first, fallback to gemini-1.5-flash if needed
+	content, err := c.callGemini(ctx, defaultGeminiModel, prompt)
 	if err != nil && !strings.Contains(err.Error(), "API_KEY_INVALID") {
 		// Attempt fallback model
-		fallbackContent, fallbackErr := c.callModel(ctx, fallbackGeminiModel, prompt)
+		fallbackContent, fallbackErr := c.callGemini(ctx, fallbackGeminiModel, prompt)
 		if fallbackErr == nil {
 			return fallbackContent, nil
 		}
@@ -104,7 +145,70 @@ func (c *GeminiClient) GeneratePR(ctx context.Context, repo, head, base string, 
 	return content, err
 }
 
-func (c *GeminiClient) callModel(ctx context.Context, model, prompt string) (*PRContent, error) {
+func (c *GeminiClient) callOpenRouter(ctx context.Context, prompt string) (*PRContent, error) {
+	reqBody := openRouterRequest{
+		Model: openRouterModel,
+		Messages: []openRouterMessage{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		Temperature: 0.2,
+	}
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openRouterBaseURL, bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("HTTP-Referer", "https://github.com/kushalsubedi/deploya")
+	req.Header.Set("X-Title", "Deploya")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("openrouter request error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read openrouter response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var oErr openRouterResponse
+		if json.Unmarshal(respBytes, &oErr) == nil && oErr.Error != nil {
+			return nil, fmt.Errorf("openrouter API error: %s", oErr.Error.Message)
+		}
+		return nil, fmt.Errorf("openrouter API returned HTTP %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	var oResp openRouterResponse
+	if err := json.Unmarshal(respBytes, &oResp); err != nil {
+		return nil, fmt.Errorf("failed to decode openrouter response: %w", err)
+	}
+
+	if len(oResp.Choices) == 0 {
+		return nil, fmt.Errorf("openrouter returned no completions")
+	}
+
+	rawText := strings.TrimSpace(oResp.Choices[0].Message.Content)
+	if rawText == "" {
+		return nil, fmt.Errorf("openrouter returned empty message")
+	}
+
+	return ParseGeminiPRResponse(rawText)
+}
+
+func (c *GeminiClient) callGemini(ctx context.Context, model, prompt string) (*PRContent, error) {
 	reqBody := geminiRequest{
 		Contents: []geminiContent{
 			{
@@ -207,12 +311,12 @@ Code Diff:
 %s
 
 Instructions for generating the PR:
-1. Title: A concise, standard Conventional Commit title (e.g. "feat(ten): port tendering agent to TypeScript and add web UI").
+1. Title: A concise, standard Conventional Commit title (e.g. "feat(pr): add automated PR creation with AI").
 2. Body: Generate an extensive, well-structured, and narrative Markdown body formatted with these exact sections:
 
 ## 🎯 Overview
 Explain what this PR introduces and the high-level scope:
-"This pull request merges %d unmerged commit(s) from `+"`"+`%s`+"`"+` into `+"`"+`%s`+"`"+`."
+This pull request merges %d unmerged commit(s) from %s into %s.
 Followed by a narrative summary of the feature or architectural change.
 
 ### What changed
@@ -240,7 +344,7 @@ Categorize the commits into conventional sections with commit hashes, e.g.:
 - [ ] Code changes follow repository standards
 
 ---
-<sub>Generated with [Deploya](https://github.com/kushalsubedi/deploya) and Gemini AI</sub>
+<sub>Generated with [Deploya](https://github.com/kushalsubedi/deploya) and AI</sub>
 
 CRITICAL GUIDELINES:
 - DO NOT just dump raw git status line additions/deletions (+42/-10). Write informative, narrative technical descriptions of the changes.
@@ -273,19 +377,43 @@ func ParseGeminiPRResponse(raw string) (*PRContent, error) {
 		}
 	}
 
-	// 2. Direct JSON unmarshal
-	var content PRContent
-	if err := json.Unmarshal([]byte(raw), &content); err == nil && content.Title != "" && content.Body != "" {
-		content.Title = cleanExtractedTitle(content.Title)
-		return &content, nil
+	// 2. Direct JSON unmarshal (handling string body or structured map)
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &rawMap); err == nil {
+		if t, ok := rawMap["title"].(string); ok && t != "" {
+			var bStr string
+			if b, ok := rawMap["body"].(string); ok {
+				bStr = b
+			} else if bObj, ok := rawMap["body"].(map[string]interface{}); ok {
+				var sb strings.Builder
+				if wc, ok := bObj["what_changed"].(string); ok {
+					sb.WriteString("### What changed\n" + wc + "\n\n")
+				}
+				if why, ok := bObj["why"].(string); ok {
+					sb.WriteString("### Why\n" + why + "\n\n")
+				}
+				if hv, ok := bObj["how_verified"].(string); ok {
+					sb.WriteString("### How it was verified\n" + hv + "\n\n")
+				}
+				bStr = sb.String()
+			}
+			if bStr != "" {
+				return &PRContent{
+					Title: cleanExtractedTitle(t),
+					Body:  cleanExtractedBody(bStr),
+				}, nil
+			}
+		}
 	}
 
 	// 3. Extract outermost JSON object { ... } if text had surrounding conversational text
 	if firstBrace := strings.Index(raw, "{"); firstBrace != -1 {
 		if lastBrace := strings.LastIndex(raw, "}"); lastBrace != -1 && lastBrace > firstBrace {
 			candidateJSON := raw[firstBrace : lastBrace+1]
+			var content PRContent
 			if err := json.Unmarshal([]byte(candidateJSON), &content); err == nil && content.Title != "" && content.Body != "" {
 				content.Title = cleanExtractedTitle(content.Title)
+				content.Body = cleanExtractedBody(content.Body)
 				return &content, nil
 			}
 
@@ -293,6 +421,7 @@ func ParseGeminiPRResponse(raw string) (*PRContent, error) {
 			sanitized := fixUnescapedJSONNewlines(candidateJSON)
 			if err := json.Unmarshal([]byte(sanitized), &content); err == nil && content.Title != "" && content.Body != "" {
 				content.Title = cleanExtractedTitle(content.Title)
+				content.Body = cleanExtractedBody(content.Body)
 				return &content, nil
 			}
 		}
@@ -303,7 +432,7 @@ func ParseGeminiPRResponse(raw string) (*PRContent, error) {
 	if title != "" && body != "" {
 		return &PRContent{
 			Title: cleanExtractedTitle(title),
-			Body:  body,
+			Body:  cleanExtractedBody(body),
 		}, nil
 	}
 
@@ -339,15 +468,36 @@ func ParseGeminiPRResponse(raw string) (*PRContent, error) {
 
 	return &PRContent{
 		Title: cleanExtractedTitle(title),
-		Body:  body,
+		Body:  cleanExtractedBody(body),
 	}, nil
 }
 
 func cleanExtractedTitle(t string) string {
 	t = strings.TrimSpace(t)
+	t = strings.TrimPrefix(t, "title\": \"")
+	t = strings.TrimPrefix(t, "\"title\": \"")
+	t = strings.TrimPrefix(t, "title: ")
 	t = strings.TrimPrefix(t, "Title: ")
 	t = strings.Trim(t, `"'*`+"`")
+	t = strings.TrimSuffix(t, ",")
+	t = strings.Trim(t, `"'*`+"`")
 	return strings.TrimSpace(t)
+}
+
+func cleanExtractedBody(b string) string {
+	b = strings.TrimSpace(b)
+	b = strings.TrimPrefix(b, "\"body\": \"")
+	b = strings.TrimPrefix(b, "body\": \"")
+	b = strings.TrimPrefix(b, "\"body\":")
+	b = strings.TrimPrefix(b, "body:")
+	b = strings.TrimSpace(b)
+	if strings.HasPrefix(b, "\"") && strings.HasSuffix(b, "\"") && len(b) >= 2 {
+		b = b[1 : len(b)-1]
+	}
+	if strings.Contains(b, `\n`) {
+		b = strings.ReplaceAll(b, `\n`, "\n")
+	}
+	return strings.TrimSpace(b)
 }
 
 // extractFieldsRegex pulls out "title" and "body" values if standard JSON unmarshaling fails
@@ -359,11 +509,19 @@ func extractFieldsRegex(text string) (string, string) {
 		title = unescapeJSONString(titleMatch[1])
 	}
 
-	bodyRe := regexp.MustCompile(`"body"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+	// Capture "body": "..." including multiline and escaped content
+	bodyRe := regexp.MustCompile(`(?s)"body"\s*:\s*"(.*)"\s*}?$`)
 	bodyMatch := bodyRe.FindStringSubmatch(text)
 	var body string
 	if len(bodyMatch) > 1 {
 		body = unescapeJSONString(bodyMatch[1])
+	} else {
+		// Non-greedy fallback
+		bodyRe2 := regexp.MustCompile(`(?s)"body"\s*:\s*"(.*?)"(?:\s*,|\s*}$)`)
+		bodyMatch2 := bodyRe2.FindStringSubmatch(text)
+		if len(bodyMatch2) > 1 {
+			body = unescapeJSONString(bodyMatch2[1])
+		}
 	}
 
 	return title, body
