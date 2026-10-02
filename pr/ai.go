@@ -37,7 +37,7 @@ func NewGeminiClient(key string) *GeminiClient {
 
 	return &GeminiClient{
 		apiKey:     strings.TrimSpace(key),
-		httpClient: &http.Client{Timeout: 35 * time.Second},
+		httpClient: &http.Client{Timeout: 45 * time.Second},
 	}
 }
 
@@ -83,7 +83,7 @@ type geminiResponse struct {
 }
 
 // GeneratePR sends repository context, commits, and diff to Gemini AI
-// and returns a concise, structured, and beautiful Pull Request title and description.
+// and returns a thorough, rich, and comprehensive Pull Request description.
 func (c *GeminiClient) GeneratePR(ctx context.Context, repo, head, base string, commits []Commit, diffStat, diffPatch string) (*PRContent, error) {
 	if !c.IsAvailable() {
 		return nil, fmt.Errorf("gemini API key is not configured")
@@ -115,7 +115,7 @@ func (c *GeminiClient) callModel(ctx context.Context, model, prompt string) (*PR
 		},
 		GenerationConfig: &geminiGenerationConfig{
 			Temperature:      0.2,
-			MaxOutputTokens:  4096,
+			MaxOutputTokens:  6000,
 			ResponseMimeType: "application/json",
 		},
 	}
@@ -189,12 +189,12 @@ func buildPrompt(repo, head, base string, commits []Commit, diffPatch string) st
 	}
 
 	// Limit diffPatch to prevent token exhaustion
-	if len(diffPatch) > 25000 {
-		diffPatch = diffPatch[:25000] + "\n\n[... diff truncated for length ...]"
+	if len(diffPatch) > 30000 {
+		diffPatch = diffPatch[:30000] + "\n\n[... diff truncated for length ...]"
 	}
 
-	return fmt.Sprintf(`You are an expert software engineer writing a clean, concise, and professional GitHub Pull Request.
-Analyze the unmerged commits and code diff below, and synthesize a high-level summary.
+	return fmt.Sprintf(`You are an expert staff software engineer writing an in-depth, thorough, and highly articulate GitHub Pull Request description.
+Carefully inspect the unmerged commits and the code diff below to synthesize a rich, high-context technical writeup explaining WHAT changed, WHY, and HOW to verify it.
 
 Repository: %s
 Source Branch (HEAD): %s
@@ -206,27 +206,53 @@ Unmerged Commits:
 Code Diff:
 %s
 
-Instructions:
-1. Title: A concise conventional commit title (e.g. "feat(pr): improve AI-generated summaries").
-2. Body: Beautiful Markdown formatted as follows:
-   - ## 🎯 Overview: Concise 2-3 sentence explanation of the objective, problem solved, and overall approach.
-   - ## ✨ Key Changes: Grouped bullet points highlighting the main functional and architectural changes.
-   - ## 🔍 Implementation Highlights: Bullet points explaining notable logic or design choices.
-   - ## 🧪 Verification: Brief summary of tests run or how to verify.
-   - ## 📋 Checklist: Standard review checklist items.
-   - At the bottom: "<sub>Generated with [Deploya](https://github.com/kushalsubedi/deploya) and Gemini AI</sub>"
+Instructions for generating the PR:
+1. Title: A concise, standard Conventional Commit title (e.g. "feat(ten): port tendering agent to TypeScript and add web UI").
+2. Body: Generate an extensive, well-structured, and narrative Markdown body formatted with these exact sections:
 
-CRITICAL REQUIREMENTS:
-- DO NOT list individual file names with line additions/deletions counts (+/-) like git diff/status.
-- Keep the description concise, informative, and readable. Reviewers already have the 'Files changed' tab in GitHub.
-- Return ONLY valid JSON with keys "title" and "body".
+## 🎯 Overview
+Explain what this PR introduces and the high-level scope:
+"This pull request merges %d unmerged commit(s) from `+"`"+`%s`+"`"+` into `+"`"+`%s`+"`"+`."
+Followed by a narrative summary of the feature or architectural change.
 
-Output JSON format:
+### What changed
+Provide a detailed, narrative technical walkthrough organized by subsystem, package, or directory.
+Mention the specific components, domain logic, APIs, routes, UI screens, tests, configuration, or CLI commands introduced or changed. Explain what each piece does rather than just naming them.
+
+### Why
+Explain the architectural rationale, motivation, and problem solved. Contrast with how it worked previously (e.g., prototype, tech debt, missing capability, refactor) and why this change improves the system.
+
+### How it was verified / How to run
+Provide concrete testing details:
+- Commands to run tests and build steps (e.g. test suites executed, bundle/build verification).
+- Step-by-step commands for reviewers to run or test locally (e.g. dev server commands, test commands, CLI commands with sample args).
+
+## 🛠️ Key Changes
+Categorize the commits into conventional sections with commit hashes, e.g.:
+### ✨ Features
+- feat: <commit title> (<short_hash>)
+### 🐛 Bug Fixes (if any)
+### ⚡ Performance & Refactoring (if any)
+
+## 🧪 Verification & Checklist
+- [x] Commits reviewed and verified
+- [ ] Automated CI tests pass
+- [ ] Code changes follow repository standards
+
+---
+<sub>Generated with [Deploya](https://github.com/kushalsubedi/deploya) and Gemini AI</sub>
+
+CRITICAL GUIDELINES:
+- DO NOT just dump raw git status line additions/deletions (+42/-10). Write informative, narrative technical descriptions of the changes.
+- Be deep and substantive: analyze the functions, types, and logic visible in the diff and commits.
+- Output ONLY valid JSON with keys "title" and "body".
+
+Output JSON schema:
 {
   "title": "...",
   "body": "..."
 }
-`, repo, head, base, commitList.String(), diffPatch)
+`, repo, head, base, commitList.String(), diffPatch, len(commits), head, base)
 }
 
 // ParseGeminiPRResponse extracts PRContent from raw text returned by the model.

@@ -5,9 +5,8 @@ import (
 	"strings"
 )
 
-// GenerateMarkdown builds a structured, beautiful PR description from commits.
-// It categorizes commits using conventional types and provides a clean overview
-// without dumping raw file change statistics.
+// GenerateMarkdown builds a structured, comprehensive PR description from commits.
+// It formats Overview (What changed, Why, How verified), categorized commits, and verification checklist.
 func GenerateMarkdown(head, base, repo string, commits []Commit, diffStat string) PRContent {
 	title := generateTitle(head, base, commits)
 	body := generateBody(head, base, repo, commits)
@@ -66,6 +65,23 @@ func generateBody(head, base, repo string, commits []Commit) string {
 
 	sb.WriteString("## 🎯 Overview\n")
 	sb.WriteString(fmt.Sprintf("This pull request merges **%d unmerged commit(s)** from `%s` into `%s`.\n\n", len(commits), head, base))
+
+	sb.WriteString("### What changed\n")
+	for _, c := range commits {
+		scope := ""
+		if c.Scope != "" {
+			scope = fmt.Sprintf("[%s] ", c.Scope)
+		}
+		sb.WriteString(fmt.Sprintf("- %s%s\n", scope, c.Title))
+	}
+	sb.WriteString("\n")
+
+	sb.WriteString("### Why\n")
+	sb.WriteString(fmt.Sprintf("Integrates unmerged work from branch `%s` into target branch `%s`.\n\n", head, base))
+
+	sb.WriteString("### How it was verified\n")
+	sb.WriteString("- Checked unmerged commit delta against base branch.\n")
+	sb.WriteString("- Verified git log and patch changes.\n\n")
 
 	// Categorize commits
 	categories := []struct {

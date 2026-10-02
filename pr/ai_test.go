@@ -71,8 +71,14 @@ func TestGeminiClient_GeneratePR(t *testing.T) {
 	if !strings.Contains(prompt, "feat: add pr command") {
 		t.Errorf("prompt missing commit message")
 	}
-	if !strings.Contains(prompt, "DO NOT list individual file names") {
-		t.Errorf("prompt missing instruction to avoid raw diff stat dump")
+	if !strings.Contains(prompt, "What changed") {
+		t.Errorf("prompt missing What changed section instruction")
+	}
+	if !strings.Contains(prompt, "Why") {
+		t.Errorf("prompt missing Why section instruction")
+	}
+	if !strings.Contains(prompt, "How it was verified") {
+		t.Errorf("prompt missing How it was verified instruction")
 	}
 
 	// Test parse response
