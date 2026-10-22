@@ -1,12 +1,26 @@
+# .releaserc — managed by deploya. Edit freely; deploya only
+# rewrites current_version after a release.
 on_branch: main
 from_branch: dev
-current_version: v0.7.0
+current_version: v0.8.0
 tag_prefix: v
 archive: true
 registry: ghcr
 github_repo: kushalsubedi/deploya
+mode: independent
 categories:
-  features: [feat, feature]
-  fixes: [fix, bugfix, bug]
-  patches: [chore, refactor, perf, improvement]
-  docs: [docs, doc]
+    features:
+        - feat
+        - feature
+    fixes:
+        - fix
+        - bugfix
+        - bug
+    patches:
+        - chore
+        - refactor
+        - perf
+        - improvement
+    docs:
+        - docs
+        - doc
