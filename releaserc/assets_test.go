@@ -7,7 +7,7 @@ import (
 )
 
 func TestPlanArchives(t *testing.T) {
-	files := PlanArchives("owner/myapp", "v1.2.3")
+	files := PlanArchives("myapp", "v1.2.3")
 
 	// 5 platform archives + checksums
 	if len(files) != 6 {
@@ -39,7 +39,7 @@ func TestPlanArchives(t *testing.T) {
 
 func TestBuildArchivesRequiresGoProject(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := BuildArchives(dir, "owner/repo", "v1.0.0"); err == nil {
+	if _, err := BuildArchives(dir, "repo", "v1.0.0"); err == nil {
 		t.Error("expected error for non-Go project")
 	}
 }
@@ -49,7 +49,7 @@ func TestPlanImageRef(t *testing.T) {
 	cfg := Config{GithubRepo: "Owner/MyRepo", Registry: "ghcr"}
 
 	// No Dockerfile → no image
-	if ref := PlanImageRef(dir, cfg, "v1.0.0"); ref != "" {
+	if ref := PlanImageRef(dir, cfg, Package{}, "v1.0.0"); ref != "" {
 		t.Errorf("expected empty ref without Dockerfile, got %q", ref)
 	}
 
@@ -58,13 +58,18 @@ func TestPlanImageRef(t *testing.T) {
 	}
 
 	// GHCR refs must be lowercase
-	if ref := PlanImageRef(dir, cfg, "v1.0.0"); ref != "ghcr.io/owner/myrepo:v1.0.0" {
+	if ref := PlanImageRef(dir, cfg, Package{}, "v1.0.0"); ref != "ghcr.io/owner/myrepo:v1.0.0" {
 		t.Errorf("unexpected image ref %q", ref)
+	}
+
+	// A package gets its own image under the repo namespace
+	if ref := PlanImageRef(dir, cfg, Package{Name: "API"}, "v1.0.0"); ref != "ghcr.io/owner/myrepo/api:v1.0.0" {
+		t.Errorf("unexpected package image ref %q", ref)
 	}
 
 	// Unsupported registry → no image
 	cfg.Registry = "dockerhub"
-	if ref := PlanImageRef(dir, cfg, "v1.0.0"); ref != "" {
+	if ref := PlanImageRef(dir, cfg, Package{}, "v1.0.0"); ref != "" {
 		t.Errorf("expected empty ref for unsupported registry, got %q", ref)
 	}
 }

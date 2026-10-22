@@ -43,21 +43,24 @@ const checksumsFile = "checksums.txt"
 
 // PlanArchives returns the asset file names a release would produce,
 // without building anything. Used for dry runs and notes previews.
-func PlanArchives(repo, tag string) []AssetFile {
-	name := repoName(repo)
+// name is the artifact base name (the package name in a monorepo, the repo
+// name otherwise) and version must be the bare version, not the git tag —
+// package tags contain a "/" which is not valid in a file name.
+func PlanArchives(name, version string) []AssetFile {
 	var files []AssetFile
 	for _, t := range archiveTargets {
-		files = append(files, AssetFile{Name: archiveName(name, tag, t)})
+		files = append(files, AssetFile{Name: archiveName(name, version, t)})
 	}
 	files = append(files, AssetFile{Name: checksumsFile})
 	return files
 }
 
-// BuildArchives cross-compiles the project for all targets and packages each
-// binary into a tar.gz (zip on windows), plus a sha256 checksums file.
+// BuildArchives cross-compiles the project in dir for all targets and packages
+// each binary into a tar.gz (zip on windows), plus a sha256 checksums file.
+// dir is the package directory in a monorepo, the repo root otherwise.
 // Currently supports Go projects only. Archives are written to a temp dir;
 // the returned paths stay valid for the rest of the process.
-func BuildArchives(dir, repo, tag string) ([]AssetFile, error) {
+func BuildArchives(dir, name, version string) ([]AssetFile, error) {
 	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
 		return nil, fmt.Errorf("archive builds currently support Go projects only (no go.mod in %s)", dir)
 	}
@@ -65,7 +68,6 @@ func BuildArchives(dir, repo, tag string) ([]AssetFile, error) {
 		return nil, fmt.Errorf("go is not installed or not in PATH")
 	}
 
-	name := repoName(repo)
 	outDir, err := os.MkdirTemp("", "deploya-dist-*")
 	if err != nil {
 		return nil, fmt.Errorf("could not create dist dir: %w", err)
@@ -75,7 +77,7 @@ func BuildArchives(dir, repo, tag string) ([]AssetFile, error) {
 	// so stamping several common version vars is safe for any Go project.
 	ldflags := fmt.Sprintf(
 		"-s -w -X main.version=%[1]s -X main.Version=%[1]s -X github.com/kushalsubedi/deploya/cmd.Version=%[1]s",
-		tag,
+		version,
 	)
 
 	var files []AssetFile
@@ -97,7 +99,7 @@ func BuildArchives(dir, repo, tag string) ([]AssetFile, error) {
 			return nil, fmt.Errorf("build failed for %s/%s: %w\n%s", t.goos, t.goarch, err, strings.TrimSpace(string(out)))
 		}
 
-		archivePath := filepath.Join(outDir, archiveName(name, tag, t))
+		archivePath := filepath.Join(outDir, archiveName(name, version, t))
 		if t.goos == "windows" {
 			err = zipFile(archivePath, binPath, binName)
 		} else {
@@ -120,31 +122,32 @@ func BuildArchives(dir, repo, tag string) ([]AssetFile, error) {
 }
 
 // PlanImageRef returns the image ref a release would push, or "" if the
-// project has no Dockerfile or the registry is unsupported.
-func PlanImageRef(dir string, cfg Config, tag string) string {
-	if !hasDockerfile(dir) || cfg.Registry != "ghcr" {
+// package has no Dockerfile or its registry is unsupported. dir is the package
+// directory; version must be the bare version — docker tags cannot contain "/".
+func PlanImageRef(dir string, cfg Config, pkg Package, version string) string {
+	if !hasDockerfile(dir) || pkg.registry(cfg) != "ghcr" {
 		return ""
 	}
-	return ghcrRef(cfg.GithubRepo) + ":" + tag
+	return imageRef(cfg.GithubRepo, pkg) + ":" + version
 }
 
 // BuildAndPushImage builds the project's Dockerfile and pushes it to the
 // configured registry tagged with the release tag and :latest.
 // Only GHCR is supported for now — it works with the built-in GITHUB_TOKEN.
-func BuildAndPushImage(dir string, cfg Config, tag, token string) (string, error) {
+func BuildAndPushImage(dir string, cfg Config, pkg Package, version, token string) (string, error) {
 	if !hasDockerfile(dir) {
 		return "", fmt.Errorf("no Dockerfile found in %s", dir)
 	}
-	if cfg.Registry != "ghcr" {
-		return "", fmt.Errorf("registry %q is not supported for release pushes yet — only ghcr for now", cfg.Registry)
+	if reg := pkg.registry(cfg); reg != "ghcr" {
+		return "", fmt.Errorf("registry %q is not supported for release pushes yet — only ghcr for now", reg)
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return "", fmt.Errorf("docker is not installed or not in PATH")
 	}
 
 	owner := strings.ToLower(strings.SplitN(cfg.GithubRepo, "/", 2)[0])
-	ref := ghcrRef(cfg.GithubRepo)
-	tagged := ref + ":" + tag
+	ref := imageRef(cfg.GithubRepo, pkg)
+	tagged := ref + ":" + version
 	latest := ref + ":latest"
 
 	// Login with the release token — works with the built-in GITHUB_TOKEN
@@ -181,18 +184,31 @@ func repoName(repo string) string {
 	return repo
 }
 
-// ghcrRef returns the untagged GHCR image ref for a repo, lowercased as
-// required by the registry.
-func ghcrRef(repo string) string {
-	return "ghcr.io/" + strings.ToLower(repo)
+// imageRef returns the untagged GHCR image ref, lowercased as required by the
+// registry. Packages get their own image under the repo namespace so several
+// services in one monorepo do not overwrite each other.
+func imageRef(repo string, pkg Package) string {
+	ref := "ghcr.io/" + strings.ToLower(repo)
+	if pkg.Name != "" {
+		ref += "/" + strings.ToLower(pkg.Name)
+	}
+	return ref
 }
 
-func archiveName(name, tag string, t archiveTarget) string {
+// registry resolves the package registry, falling back to the repo setting.
+func (p Package) registry(cfg Config) string {
+	if p.Registry != "" {
+		return p.Registry
+	}
+	return cfg.Registry
+}
+
+func archiveName(name, version string, t archiveTarget) string {
 	ext := ".tar.gz"
 	if t.goos == "windows" {
 		ext = ".zip"
 	}
-	return fmt.Sprintf("%s_%s_%s_%s%s", name, tag, t.goos, t.goarch, ext)
+	return fmt.Sprintf("%s_%s_%s_%s%s", name, version, t.goos, t.goarch, ext)
 }
 
 func hasDockerfile(dir string) bool {

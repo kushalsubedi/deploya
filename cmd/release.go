@@ -4,120 +4,190 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kushalsubedi/deploya/releaserc"
 )
 
+// releaseOpts drives a single repo's release. Shared by `deploya release`
+// and `deploya org release` so both paths behave identically.
+type releaseOpts struct {
+	Dir    string
+	Only   []string // package names
+	Group  string   // package group name
+	DryRun bool
+	Token  string
+}
+
+// releaseResult reports what a repo release did, for org-level summaries.
+type releaseResult struct {
+	Released []string // tags created
+	Skipped  int
+}
+
 func runRelease(args []string) error {
 	fs := flag.NewFlagSet("release", flag.ExitOnError)
 	dir := fs.String("dir", ".", "Project directory")
 	dryRun := fs.Bool("dry-run", false, "Preview release without publishing")
+	only := fs.String("only", "", "Comma-separated package names to release (monorepo)")
+	group := fs.String("group", "", "Release a configured package group (monorepo)")
 	fs.Usage = func() {
 		fmt.Println(`Usage: deploya release [flags]
 
-Reads .releaserc, bumps version, generates changelog and publishes a GitHub release.
+Reads .releaserc, bumps version(s), generates changelog(s) and publishes
+GitHub release(s). In a monorepo each package in .releaserc is versioned from
+the commits that touched its path.
 
 Flags:`)
 		fs.PrintDefaults()
+		fmt.Println(`
+Examples:
+  deploya release                     # every package with changes
+  deploya release --only api,worker   # just these packages
+  deploya release --group platform    # a configured group
+  deploya release --dry-run`)
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
+	_, err := releaseRepo(releaseOpts{
+		Dir:    *dir,
+		Only:   splitList(*only),
+		Group:  *group,
+		DryRun: *dryRun,
+		Token:  githubToken(),
+	})
+	return err
+}
+
+// releaseRepo plans and executes every release for one repository.
+func releaseRepo(o releaseOpts) (releaseResult, error) {
+	var result releaseResult
+
 	// ── Load .releaserc ────────────────────────────────────────────
 	fmt.Println("📦 Loading .releaserc...")
-	cfg, err := releaserc.Load(*dir)
+	cfg, err := releaserc.Load(o.Dir)
 	if err != nil {
-		return fmt.Errorf("could not load .releaserc: %w\nRun 'deploya init' first", err)
+		return result, fmt.Errorf("could not load .releaserc: %w\nRun 'deploya init' first", err)
 	}
 	fmt.Printf("   Repo         : %s\n", cfg.GithubRepo)
-	fmt.Printf("   Current ver  : %s\n", cfg.CurrentVersion)
 	fmt.Printf("   Branch       : %s\n", cfg.OnBranch)
-	fmt.Printf("   Archive      : %v\n", cfg.Archive)
-
-	// ── Check token (GH_TOKEN or GITHUB_TOKEN) ────────────────────
-	token := os.Getenv("GH_TOKEN")
-	if token == "" {
-		token = os.Getenv("GITHUB_TOKEN")
-	}
-	if token == "" {
-		return fmt.Errorf("no GitHub token found\nSet GH_TOKEN (or GITHUB_TOKEN) with: export GH_TOKEN=your_token")
-	}
-
-	// ── Read git log ───────────────────────────────────────────────
-	fmt.Println("\n🔍 Reading git history...")
-	latestTag, err := releaserc.LatestTag(*dir)
-	if err != nil {
-		return fmt.Errorf("could not read git tags: %w", err)
-	}
-
-	fromTag := latestTag
-	if fromTag == "" {
-		fmt.Println("   No tags found — this will be the first release")
+	if cfg.IsMonorepo() {
+		fmt.Printf("   Mode         : %s (%d packages)\n", cfg.Mode, len(cfg.Packages))
 	} else {
-		fmt.Printf("   Last tag     : %s\n", fromTag)
+		fmt.Printf("   Current ver  : %s\n", cfg.CurrentVersion)
 	}
 
-	commits, err := releaserc.GitLog(*dir, fromTag)
+	// ── Token: required to publish, optional for a dry run ─────────
+	if o.Token == "" && !o.DryRun {
+		return result, fmt.Errorf("no GitHub token found\nSet GH_TOKEN (or GITHUB_TOKEN) with: export GH_TOKEN=your_token")
+	}
+
+	// ── Plan ───────────────────────────────────────────────────────
+	fmt.Println("\n🔍 Planning release...")
+	plan, err := releaserc.BuildPlan(o.Dir, cfg, o.Only, o.Group)
 	if err != nil {
-		return fmt.Errorf("could not read git log: %w", err)
+		return result, err
+	}
+	printPlan(plan)
+
+	result.Skipped = len(plan.Skipped)
+	if len(plan.Releases) == 0 {
+		fmt.Println("\n⚠️  Nothing to release.")
+		return result, nil
 	}
 
-	if len(commits) == 0 {
-		fmt.Println("\n⚠️  No commits since last release. Nothing to release.")
-		return nil
-	}
-	fmt.Printf("   Commits found: %d\n", len(commits))
-
-	// ── Enrich commits with GitHub PR data ─────────────────────────
-	fmt.Println("\n🔗 Fetching PR data from GitHub...")
-	gh := releaserc.NewGitHub(token, cfg.GithubRepo)
-	commits, err = gh.EnrichCommits(commits)
-	if err != nil {
-		fmt.Printf("   ⚠️  Could not fetch PR data: %v\n", err)
-		fmt.Println("   Continuing with commit messages only...")
-	} else {
-		fmt.Printf("   PRs matched  : %d\n", countPRs(commits))
+	var gh *releaserc.GitHub
+	if o.Token != "" {
+		gh = releaserc.NewGitHub(o.Token, cfg.GithubRepo)
 	}
 
-	// ── Determine version bump ─────────────────────────────────────
-	// The latest reachable git tag is the source of truth; .releaserc's
-	// current_version is only a fallback for the first release.
-	bump := releaserc.DetermineBump(commits)
-	currentVer, err := releaserc.ParseVersion(cfg.CurrentVersion)
-	if err != nil {
-		return fmt.Errorf("invalid current_version in .releaserc: %w", err)
-	}
-	if latestTag != "" {
-		bare := strings.TrimPrefix(latestTag, cfg.TagPrefix)
-		if tagVer, tagErr := releaserc.ParseVersion(bare); tagErr == nil {
-			if cfg.TagPrefix+trimVerPrefix(cfg.CurrentVersion, cfg.TagPrefix) != latestTag {
-				fmt.Printf("   ⚠️  .releaserc says %s but latest tag is %s — using the tag\n", cfg.CurrentVersion, latestTag)
+	// ── Execute, unit by unit ──────────────────────────────────────
+	var changelogs []string
+	for _, rel := range plan.Releases {
+		changelog, err := executeRelease(o, cfg, gh, rel)
+		if err != nil {
+			// Earlier units already published; say so rather than
+			// pretending the whole release rolled back.
+			if len(result.Released) > 0 {
+				fmt.Printf("\n⚠️  Already released: %s\n", strings.Join(result.Released, ", "))
 			}
-			currentVer = tagVer
+			return result, fmt.Errorf("release of %s failed: %w", rel.Pkg.Label(), err)
+		}
+		if o.DryRun {
+			continue
+		}
+		result.Released = append(result.Released, rel.Tag)
+		cfg.SetVersion(rel.Pkg.Name, rel.Version)
+		if changelog != "" {
+			changelogs = append(changelogs, changelog)
 		}
 	}
-	nextVer := currentVer.Bump(bump)
 
-	// ── Calculate tags up front so notes and links stay consistent ─
-	tag := cfg.TagPrefix + trimVerPrefix(nextVer.String(), cfg.TagPrefix)
-	prevTag := latestTag
+	if o.DryRun {
+		fmt.Println("\n🔍 Dry run — nothing published.")
+		return result, nil
+	}
 
-	fmt.Printf("\n📈 Version bump : %s\n", bump)
-	fmt.Printf("   %s → %s\n", currentVer.String(), tag)
+	// ── Persist versions and changelogs in one commit ──────────────
+	fmt.Println("\n💾 Updating .releaserc...")
+	if err := releaserc.Save(o.Dir, cfg); err != nil {
+		fmt.Printf("   ⚠️  Could not update .releaserc: %v\n", err)
+	} else {
+		fmt.Println("   ✅ versions updated")
+	}
+
+	fmt.Println("\n📤 Committing release files...")
+	files := append([]string{".releaserc"}, changelogs...)
+	msg := fmt.Sprintf("chore: release %s [skip ci]", strings.Join(result.Released, ", "))
+	if err := releaserc.CommitAndPush(o.Dir, msg, files); err != nil {
+		fmt.Printf("   ⚠️  Could not commit release files: %v\n", err)
+	} else {
+		fmt.Println("   ✅ Committed and pushed")
+	}
+
+	printReleaseSummary(cfg, plan, result)
+	return result, nil
+}
+
+// executeRelease publishes one unit. Returns the changelog path to commit,
+// relative to the repo root.
+func executeRelease(o releaseOpts, cfg releaserc.Config, gh *releaserc.GitHub, rel releaserc.Release) (string, error) {
+	unitDir := rel.Pkg.Dir(o.Dir)
+
+	fmt.Println("\n" + repeat("━", 52))
+	fmt.Printf("  %s  %s → %s  (%s bump, %s)\n",
+		rel.Pkg.Label(), displayPrev(rel.PrevTag), rel.Tag, rel.Bump, rel.Reason)
+	fmt.Println(repeat("━", 52))
+
+	// ── Enrich commits with GitHub PR data ─────────────────────────
+	commits := rel.Commits
+	if gh != nil && len(commits) > 0 {
+		fmt.Println("🔗 Fetching PR data from GitHub...")
+		enriched, err := gh.EnrichCommits(commits)
+		if err != nil {
+			fmt.Printf("   ⚠️  Could not fetch PR data: %v\n", err)
+			fmt.Println("   Continuing with commit messages only...")
+		} else {
+			commits = enriched
+			fmt.Printf("   PRs matched  : %d\n", countPRs(commits))
+		}
+	}
 
 	// ── Build release assets (binaries + container image) ──────────
 	// Built before the notes so the changelog links exactly what shipped.
 	assets := &releaserc.Assets{}
+	artifactName := rel.Pkg.ArtifactName(cfg.GithubRepo)
 
-	if cfg.Archive {
-		if *dryRun {
-			assets.Files = releaserc.PlanArchives(cfg.GithubRepo, tag)
+	if rel.Pkg.Archive {
+		if o.DryRun {
+			assets.Files = releaserc.PlanArchives(artifactName, rel.Version)
 			fmt.Printf("\n📦 Would build %d binary archives (dry run)\n", len(assets.Files))
 		} else {
 			fmt.Println("\n📦 Building binary archives...")
-			files, err := releaserc.BuildArchives(*dir, cfg.GithubRepo, tag)
+			files, err := releaserc.BuildArchives(unitDir, artifactName, rel.Version)
 			if err != nil {
 				fmt.Printf("   ⚠️  Could not build archives: %v\n", err)
 				fmt.Println("   Continuing without binary assets...")
@@ -130,13 +200,13 @@ Flags:`)
 		}
 	}
 
-	if ref := releaserc.PlanImageRef(*dir, cfg, tag); ref != "" {
-		if *dryRun {
+	if ref := releaserc.PlanImageRef(unitDir, cfg, rel.Pkg, rel.Version); ref != "" {
+		if o.DryRun {
 			assets.ImageRef = ref
 			fmt.Printf("\n🐳 Would push container image %s (dry run)\n", ref)
 		} else {
 			fmt.Printf("\n🐳 Building and pushing container image %s...\n", ref)
-			pushed, err := releaserc.BuildAndPushImage(*dir, cfg, tag, token)
+			pushed, err := releaserc.BuildAndPushImage(unitDir, cfg, rel.Pkg, rel.Version, o.Token)
 			if err != nil {
 				fmt.Printf("   ⚠️  Could not push image: %v\n", err)
 				fmt.Println("   Continuing without container asset...")
@@ -147,45 +217,45 @@ Flags:`)
 		}
 	}
 
-	// ── Categorize commits ─────────────────────────────────────────
+	// ── Release notes ──────────────────────────────────────────────
 	categories := releaserc.CategorizeCommits(commits, cfg.Categories)
-
-	// ── Generate release notes ─────────────────────────────────────
-	notes := releaserc.GenerateNotes(tag, categories, prevTag, cfg.GithubRepo, assets)
+	notes := releaserc.GenerateNotes(rel, categories, cfg.GithubRepo, assets)
 
 	fmt.Println("\n📝 Release notes preview:")
 	fmt.Println(repeat("─", 52))
 	fmt.Println(notes)
 	fmt.Println(repeat("─", 52))
 
-	if *dryRun {
-		fmt.Println("\n🔍 Dry run — nothing published.")
-		return nil
+	if o.DryRun {
+		return "", nil
 	}
 
-	// ── Update CHANGELOG.md ────────────────────────────────────────
-	fmt.Println("\n📄 Updating CHANGELOG.md...")
-	if err := releaserc.UpdateChangelog(*dir, notes); err != nil {
+	// ── Changelog lives next to the code it describes ──────────────
+	fmt.Println("📄 Updating CHANGELOG.md...")
+	changelog := filepath.Join(rel.Pkg.Path, "CHANGELOG.md")
+	if err := releaserc.UpdateChangelog(unitDir, notes); err != nil {
 		fmt.Printf("   ⚠️  Could not update CHANGELOG.md: %v\n", err)
+		changelog = ""
 	} else {
-		fmt.Println("   ✅ CHANGELOG.md updated")
+		fmt.Printf("   ✅ %s updated\n", changelog)
 	}
 
-	// ── Create local tag and push ──────────────────────────────────
-	// This anchors the tag to the real commit in branch history
-	// so future git log ranges work correctly
-	fmt.Printf("\n🏷️  Creating tag %s...\n", tag)
-	if err := releaserc.CreateSignedTag(*dir, tag, fmt.Sprintf("Release %s", tag)); err != nil {
-		return fmt.Errorf("could not create tag: %w", err)
+	// ── Tag first so the release is anchored to real branch history ─
+	fmt.Printf("\n🏷️  Creating tag %s...\n", rel.Tag)
+	if err := releaserc.CreateSignedTag(o.Dir, rel.Tag, fmt.Sprintf("Release %s", rel.Tag)); err != nil {
+		return "", fmt.Errorf("could not create tag: %w", err)
 	}
 
-	// ── Create GitHub release from existing tag ────────────────────
-	fmt.Printf("\n🚀 Creating GitHub release %s...\n", tag)
-	releaseID, err := gh.CreateRelease(tag, tag, notes, cfg.OnBranch)
+	title := rel.Tag
+	if rel.Pkg.Name != "" {
+		title = rel.Pkg.Name + " " + rel.Version
+	}
+	fmt.Printf("\n🚀 Creating GitHub release %s...\n", title)
+	releaseID, err := gh.CreateRelease(title, rel.Tag, notes, cfg.OnBranch)
 	if err != nil {
-		return fmt.Errorf("could not create GitHub release: %w", err)
+		return "", fmt.Errorf("could not create GitHub release: %w", err)
 	}
-	fmt.Printf("   ✅ Release created: https://github.com/%s/releases/tag/%s\n", cfg.GithubRepo, tag)
+	fmt.Printf("   ✅ https://github.com/%s/releases/tag/%s\n", cfg.GithubRepo, rel.Tag)
 
 	// ── Upload binary archives to the release ──────────────────────
 	if len(assets.Files) > 0 {
@@ -202,53 +272,45 @@ Flags:`)
 		}
 	}
 
-	// ── Update .releaserc with new version ─────────────────────────
-	fmt.Println("\n💾 Updating .releaserc...")
-	cfg.CurrentVersion = tag
-	if err := releaserc.Save(*dir, cfg); err != nil {
-		fmt.Printf("   ⚠️  Could not update .releaserc: %v\n", err)
-	} else {
-		fmt.Println("   ✅ current_version updated to", tag)
-	}
-
-	// ── Commit and push .releaserc + CHANGELOG.md ──────────────────
-	fmt.Println("\n📤 Committing release files...")
-	filesToCommit := []string{".releaserc", "CHANGELOG.md"}
-	msg := fmt.Sprintf("chore: release %s [skip ci]", tag)
-	if err := releaserc.CommitAndPush(*dir, msg, filesToCommit); err != nil {
-		fmt.Printf("   ⚠️  Could not commit release files: %v\n", err)
-	} else {
-		fmt.Println("   ✅ Committed and pushed")
-	}
-
-	// ── Final summary ──────────────────────────────────────────────
-	fmt.Println("\n" + repeat("─", 52))
-	fmt.Printf("  🎉 Released %s successfully!\n", tag)
-	fmt.Println(repeat("─", 52))
-	fmt.Printf("\n  📦 Version   : %s\n", tag)
-	fmt.Printf("  🔖 Tag       : %s\n", tag)
-	fmt.Printf("  📝 Changelog : CHANGELOG.md\n")
-	if len(assets.Files) > 0 {
-		fmt.Printf("  📦 Assets    : %d files\n", len(assets.Files))
-	}
-	if assets.ImageRef != "" {
-		fmt.Printf("  🐳 Image     : %s\n", assets.ImageRef)
-	}
-	fmt.Printf("  🔗 Release   : https://github.com/%s/releases/tag/%s\n",
-		cfg.GithubRepo, tag)
-	fmt.Println()
-
-	return nil
+	return changelog, nil
 }
 
-// trimVerPrefix strips the configured tag prefix (and a plain leading "v")
-// so the prefix can be re-applied exactly once regardless of how
-// current_version was written.
-func trimVerPrefix(v, tagPrefix string) string {
-	if tagPrefix != "" {
-		v = strings.TrimPrefix(v, tagPrefix)
+func printPlan(plan releaserc.Plan) {
+	if len(plan.Releases) > 0 {
+		fmt.Printf("\n   Will release (%s mode):\n", plan.Mode)
+		for _, r := range plan.Releases {
+			fmt.Printf("     • %-14s %s → %s  (%s, %d commits, %s)\n",
+				r.Pkg.Label(), displayPrev(r.PrevTag), r.Tag, r.Bump, len(r.Commits), r.Reason)
+		}
 	}
-	return strings.TrimPrefix(v, "v")
+	if len(plan.Skipped) > 0 {
+		fmt.Println("\n   Skipped:")
+		for _, s := range plan.Skipped {
+			fmt.Printf("     · %-14s %s\n", s.Name, s.Reason)
+		}
+	}
+}
+
+func printReleaseSummary(cfg releaserc.Config, plan releaserc.Plan, result releaseResult) {
+	fmt.Println("\n" + repeat("─", 52))
+	fmt.Printf("  🎉 Released %d unit(s) successfully!\n", len(result.Released))
+	fmt.Println(repeat("─", 52))
+	for _, r := range plan.Releases {
+		fmt.Printf("\n  📦 %s\n", r.Pkg.Label())
+		fmt.Printf("     Tag       : %s\n", r.Tag)
+		fmt.Printf("     Release   : https://github.com/%s/releases/tag/%s\n", cfg.GithubRepo, r.Tag)
+	}
+	if result.Skipped > 0 {
+		fmt.Printf("\n  · %d unit(s) skipped — no changes\n", result.Skipped)
+	}
+	fmt.Println()
+}
+
+func displayPrev(tag string) string {
+	if tag == "" {
+		return "(first)"
+	}
+	return tag
 }
 
 func countPRs(commits []releaserc.CommitInfo) int {
@@ -259,4 +321,23 @@ func countPRs(commits []releaserc.CommitInfo) int {
 		}
 	}
 	return count
+}
+
+// githubToken reads the release token from the usual env vars.
+func githubToken() string {
+	if t := os.Getenv("GH_TOKEN"); t != "" {
+		return t
+	}
+	return os.Getenv("GITHUB_TOKEN")
+}
+
+// splitList parses a comma-separated flag value.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

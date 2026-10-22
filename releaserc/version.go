@@ -147,9 +147,13 @@ func isBreaking(c CommitInfo) bool {
 	return false
 }
 
+// hasPrefix reports whether s carries any of the given conventional commit
+// prefixes, including the "!" breaking-change marker (feat!: / feat(api)!:).
 func hasPrefix(s string, prefixes ...string) bool {
+	s = strings.ToLower(s)
 	for _, p := range prefixes {
-		if strings.HasPrefix(s, p+":") || strings.HasPrefix(s, p+"(") {
+		p = strings.ToLower(p)
+		if strings.HasPrefix(s, p+":") || strings.HasPrefix(s, p+"!:") || strings.HasPrefix(s, p+"(") {
 			return true
 		}
 	}

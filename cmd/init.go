@@ -3,6 +3,7 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/kushalsubedi/deploya/config"
 	"github.com/kushalsubedi/deploya/detector"
@@ -130,6 +131,33 @@ func askFramework() string {
 	return prompt.Select("Select your framework:", choices, "plain")
 }
 
+// askReleaseMode picks between one version line per package and a single
+// version shared across the repo.
+func askReleaseMode() string {
+	choices := []prompt.Choice{
+		{Key: releaserc.ModeIndependent, Label: "Independent — each package has its own version and tag (api/v1.2.0)"},
+		{Key: releaserc.ModeLocked, Label: "Locked — one version for the whole repo, every package ships together"},
+	}
+	return prompt.Select("How should package versions move?", choices, releaserc.ModeIndependent)
+}
+
+// releasePackages turns detected workspace packages into release units.
+// Binary archives only apply to Go packages, which is all BuildArchives
+// supports today.
+func releasePackages(pkgs []detector.WorkspacePkg, archive bool) []releaserc.Package {
+	out := make([]releaserc.Package, 0, len(pkgs))
+	for _, p := range pkgs {
+		out = append(out, releaserc.Package{
+			Name:           p.Name,
+			Path:           p.Path,
+			CurrentVersion: "v0.0.0",
+			Archive:        archive && p.Lang == "go",
+			DependsOn:      p.DependsOn,
+		})
+	}
+	return out
+}
+
 func askNotify() string {
 	choices := []prompt.Choice{
 		{Key: "none", Label: "None"},
@@ -171,9 +199,7 @@ func handleRelease(dir string, ctx config.ProjectContext) *releaserc.Config {
 	}
 
 	// Ask for github_repo
-	fmt.Print("\n  Enter your GitHub repo (owner/repo): ")
-	var repo string
-	fmt.Scanln(&repo)
+	repo := prompt.Line("\n  Enter your GitHub repo (owner/repo): ")
 	if repo == "" || !containsSlash(repo) {
 		fmt.Println("  ⚠️  Skipping release setup — invalid repo format")
 		return nil
@@ -189,6 +215,23 @@ func handleRelease(dir string, ctx config.ProjectContext) *releaserc.Config {
 	cfg.Registry = ctx.Registry
 	cfg.OnBranch = ctx.MainBranch
 	cfg.CurrentVersion = "v0.0.0"
+	cfg.Mode = releaserc.ModeIndependent
+
+	// ── Monorepo: offer per-package releases ───────────────────────
+	if pkgs := detector.DetectWorkspace(dir); len(pkgs) > 0 {
+		fmt.Printf("\n🧩 Detected a monorepo workspace — %d packages:\n", len(pkgs))
+		for _, p := range pkgs {
+			line := fmt.Sprintf("     • %-16s %s", p.Name, p.Path)
+			if len(p.DependsOn) > 0 {
+				line += "  (depends on " + strings.Join(p.DependsOn, ", ") + ")"
+			}
+			fmt.Println(line)
+		}
+		if prompt.Confirm("Release these packages independently?", true) {
+			cfg.Mode = askReleaseMode()
+			cfg.Packages = releasePackages(pkgs, archive)
+		}
+	}
 
 	// Save .releaserc to project
 	if err := releaserc.Save(dir, cfg); err != nil {
@@ -197,6 +240,10 @@ func handleRelease(dir string, ctx config.ProjectContext) *releaserc.Config {
 	}
 
 	fmt.Println("  ✅ Created .releaserc")
+	if len(cfg.Packages) > 0 {
+		fmt.Printf("     %d packages configured for %s releases\n", len(cfg.Packages), cfg.Mode)
+		fmt.Println("     Add `groups:` to .releaserc to release several packages as one product unit")
+	}
 	return &cfg
 }
 

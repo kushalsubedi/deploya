@@ -217,5 +217,97 @@ categories:
 ```
 
 
+# Monorepo & modular releases
+
+Deploya releases **packages**, not just repos. Add a `packages:` list to
+`.releaserc` and every package gets its own version line, bumped only from the
+commits that touched its path.
+
+`deploya init` detects this for you — it reads `go.work`, `pnpm-workspace.yaml`,
+the `package.json` `workspaces` field, `lerna.json` or a Cargo workspace,
+proposes the package list, and works out the dependency links between them.
+
+```yaml
+github_repo: acme/platform
+mode: independent          # or: locked
+
+packages:
+  - name: api
+    path: services/api
+    current_version: v1.2.0
+    archive: true          # cross-platform binaries, Go packages only
+  - name: web
+    path: apps/web
+    current_version: v0.4.0
+    depends_on: [api]      # releasing api re-releases web
+
+groups:                    # named product units
+  platform: [api, worker, gateway]
+  frontend: [web, admin]
+```
+
+```bash
+deploya release                    # every package with changes
+deploya release --only api,worker  # just these
+deploya release --group platform   # a configured group
+deploya release --dry-run          # plan only, no token needed
+```
+
+```
+   Will release (independent mode):
+     • api            api/v1.2.0 → api/v2.0.0  (major, 3 commits, commits)
+     • web            web/v0.4.0 → web/v0.4.1  (patch, 0 commits, dependency bump (api))
+
+   Skipped:
+     · docs           no commits since docs/v1.0.0
+```
+
+What you get per package:
+
+| | |
+|---|---|
+| **Tags** | `api/v2.0.0` — one tag line per package, never mixed |
+| **Releases** | one GitHub release each, with its own notes |
+| **Changelogs** | `services/api/CHANGELOG.md`, next to the code it describes |
+| **Binaries** | `api_v2.0.0_linux_amd64.tar.gz` built from the package directory |
+| **Images** | `ghcr.io/acme/platform/api:v2.0.0` — one image per package |
+
+**Modes.** `independent` (default) gives every package its own version.
+`locked` keeps one version across the repo: a single tag, a single release, and
+notes listing which packages actually moved.
+
+**Dependency cascade.** `depends_on` means a package is re-released whenever one
+of its dependencies is, with a patch bump and a note saying why. It propagates
+transitively, so A → B → C all move together.
+
+# Org-level releases
+
+One manifest, many repos. `deploya org init` scaffolds `deploya.org.yml`:
+
+```yaml
+org: acme
+workspace: .deploya/repos    # where repos without a local checkout are cloned
+repos:
+  - repo: acme/platform
+    dir: ../platform         # existing checkout; omit to let deploya clone it
+    group: platform          # which packages inside that repo to release
+  - repo: acme/docs
+```
+
+```bash
+deploya org status    # what is unreleased across the whole portfolio
+deploya org release   # cut them all — a failing repo never stops the others
+```
+
+```
+  ✅ acme/platform                 api/v2.0.0, web/v0.4.1
+  ⬆️  acme/docs                     1 unit(s) pending release
+  ❌ acme/legacy                   could not load .releaserc
+```
+
+Each repo keeps its own `.releaserc`; the manifest only says which repos belong
+to the product. Needs `GH_TOKEN` (or `GITHUB_TOKEN`) with access to each repo.
+
+
 
 [![Star History Chart](https://api.star-history.com/image?repos=kushalsubedi/deploya&type=date&legend=top-left)](https://www.star-history.com/?repos=kushalsubedi%2Fdeploya&type=date&legend=top-left)
