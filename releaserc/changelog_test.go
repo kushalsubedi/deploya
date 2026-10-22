@@ -57,12 +57,12 @@ func TestGenerateNotesCompareLink(t *testing.T) {
 	categories := []Category{
 		{Name: "Features", Emoji: "✨", Commits: []CommitInfo{{Title: "feat: x", SHA: "abcdef1234567890"}}},
 	}
-	notes := GenerateNotes("v0.5.0", categories, "v0.4.0", "owner/repo", nil)
+	notes := GenerateNotes(Release{Tag: "v0.5.0", Version: "v0.5.0", PrevTag: "v0.4.0"}, categories, "owner/repo", nil)
 	if !strings.Contains(notes, "compare/v0.4.0...v0.5.0") {
 		t.Errorf("compare link missing or malformed:\n%s", notes)
 	}
 
-	first := GenerateNotes("v0.1.0", categories, "", "owner/repo", nil)
+	first := GenerateNotes(Release{Tag: "v0.1.0", Version: "v0.1.0"}, categories, "owner/repo", nil)
 	if strings.Contains(first, "compare/") {
 		t.Error("first release should not contain a compare link")
 	}
@@ -79,7 +79,7 @@ func TestGenerateNotesAssets(t *testing.T) {
 			{Name: "checksums.txt"},
 		},
 	}
-	notes := GenerateNotes("v0.6.0", categories, "v0.5.0", "owner/repo", assets)
+	notes := GenerateNotes(Release{Tag: "v0.6.0", Version: "v0.6.0", PrevTag: "v0.5.0"}, categories, "owner/repo", assets)
 
 	if !strings.Contains(notes, "### 📦 Assets") {
 		t.Fatalf("assets section missing:\n%s", notes)
@@ -95,8 +95,30 @@ func TestGenerateNotesAssets(t *testing.T) {
 	}
 
 	// No assets → no section
-	empty := GenerateNotes("v0.6.0", categories, "v0.5.0", "owner/repo", &Assets{})
+	empty := GenerateNotes(Release{Tag: "v0.6.0", Version: "v0.6.0", PrevTag: "v0.5.0"}, categories, "owner/repo", &Assets{})
 	if strings.Contains(empty, "Assets") {
 		t.Error("empty assets should not render a section")
+	}
+}
+
+// A breaking-change marker must not demote a feature to a patch note.
+func TestCategorizeBreakingFeature(t *testing.T) {
+	cats := DefaultConfig().Categories
+	commits := []CommitInfo{
+		{Title: "feat!: new api surface"},
+		{Title: "fix(api)!: drop legacy field"},
+		{Title: "FEAT: shouting"},
+	}
+	result := CategorizeCommits(commits, cats)
+
+	got := map[string]int{}
+	for _, c := range result {
+		got[c.Name] = len(c.Commits)
+	}
+	if got["Features"] != 2 {
+		t.Errorf("Features = %d, want 2 — breaking marker swallowed the prefix: %+v", got["Features"], got)
+	}
+	if got["Bug Fixes"] != 1 {
+		t.Errorf("Bug Fixes = %d, want 1: %+v", got["Bug Fixes"], got)
 	}
 }

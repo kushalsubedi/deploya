@@ -21,6 +21,7 @@ Commands:
   preview     Dry-run: print the pipeline to stdout without writing files
   add         Add a new job or step to an existing pipeline
   release     Cut a new release — bump version, generate changelog, publish to GitHub
+  org         Release a portfolio of repos from deploya.org.yml
   pr          Create a GitHub Pull Request with unmerged commits and AI summary
 
 Flags:
@@ -32,6 +33,9 @@ Examples:
   deploya preview
   deploya validate
   deploya add --job deploy
+  deploya release --only api,worker
+  deploya release --group platform
+  deploya org status
   deploya pr
   deploya pr --base main --draft
   deploya pr --dry-run
@@ -54,6 +58,8 @@ func Execute() error {
 		return runAdd(os.Args[2:])
 	case "release":
 		return runRelease(os.Args[2:])
+	case "org":
+		return runOrg(os.Args[2:])
 	case "pr":
 		return runPR(os.Args[2:])
 

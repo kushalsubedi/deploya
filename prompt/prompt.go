@@ -13,6 +13,15 @@ type Choice struct {
 	Label string
 }
 
+// stdin is shared across every prompt. A per-call bufio.Reader would buffer
+// ahead and discard the rest of piped input, which breaks scripted runs.
+var stdin = bufio.NewReader(os.Stdin)
+
+func readLine() string {
+	line, _ := stdin.ReadString('\n')
+	return strings.TrimSpace(line)
+}
+
 // Select shows a numbered menu and returns the chosen key.
 // If defaultKey is provided and user presses enter, that key is used.
 func Select(question string, choices []Choice, defaultKey string) string {
@@ -41,9 +50,7 @@ func Select(question string, choices []Choice, defaultKey string) string {
 			fmt.Print("\n  Enter choice: ")
 		}
 
-		reader := bufio.NewReader(os.Stdin)
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
+		input := readLine()
 
 		// User pressed enter — use default
 		if input == "" && defaultKey != "" {
@@ -79,12 +86,16 @@ func Confirm(question string, defaultYes bool) bool {
 	}
 	fmt.Printf("\n  %s [%s]: ", question, hint)
 
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	input = strings.TrimSpace(strings.ToLower(input))
+	input := strings.ToLower(readLine())
 
 	if input == "" {
 		return defaultYes
 	}
 	return input == "y" || input == "yes"
+}
+
+// Line asks a free-text question and returns the trimmed answer.
+func Line(question string) string {
+	fmt.Print(question)
+	return readLine()
 }

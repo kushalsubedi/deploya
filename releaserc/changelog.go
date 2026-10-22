@@ -71,36 +71,37 @@ func categorizeOne(c CommitInfo, cats Categories) string {
 		}
 	}
 
-	// Fall back to title prefix
-	title := strings.ToLower(c.Title)
-	for _, p := range cats.Features {
-		if strings.HasPrefix(title, p+":") || strings.HasPrefix(title, p+"(") {
-			return "features"
-		}
-	}
-	for _, p := range cats.Fixes {
-		if strings.HasPrefix(title, p+":") || strings.HasPrefix(title, p+"(") {
-			return "fixes"
-		}
-	}
-	for _, p := range cats.Docs {
-		if strings.HasPrefix(title, p+":") || strings.HasPrefix(title, p+"(") {
-			return "docs"
-		}
+	// Fall back to title prefix — hasPrefix also matches the "!" breaking
+	// marker, so "feat!: x" is still a feature in the changelog.
+	switch {
+	case hasPrefix(c.Title, cats.Features...):
+		return "features"
+	case hasPrefix(c.Title, cats.Fixes...):
+		return "fixes"
+	case hasPrefix(c.Title, cats.Docs...):
+		return "docs"
 	}
 
 	return "patches"
 }
 
-// GenerateNotes renders the release markdown for a given version.
-// version and prevTag must both be tag names (e.g. "v1.2.3") so that
-// the compare link resolves. prevTag may be empty for the first release.
+// GenerateNotes renders the release markdown for one planned release.
 // assets may be nil when the release ships no artifacts.
-func GenerateNotes(version string, categories []Category, prevTag, repo string, assets *Assets) string {
+func GenerateNotes(rel Release, categories []Category, repo string, assets *Assets) string {
 	var sb strings.Builder
 
+	version := rel.Tag
 	date := time.Now().Format("2006-01-02")
-	sb.WriteString(fmt.Sprintf("## %s — %s\n\n", version, date))
+	title := version
+	if rel.Pkg.Name != "" {
+		title = rel.Pkg.Name + " " + rel.Version
+	}
+	sb.WriteString(fmt.Sprintf("## %s — %s\n\n", title, date))
+
+	// ── Locked mode: say which packages moved in this version ──────
+	if len(rel.Changed) > 0 {
+		sb.WriteString("**Packages:** " + strings.Join(rel.Changed, ", ") + "\n\n")
+	}
 
 	// ── Categorized entries with commit + PR links ─────────────────
 	for _, cat := range categories {
@@ -126,6 +127,11 @@ func GenerateNotes(version string, categories []Category, prevTag, repo string, 
 			sb.WriteString(entry + "\n")
 		}
 		sb.WriteString("\n")
+	}
+
+	// ── Dependency-only releases have no commits of their own ──────
+	if len(categories) == 0 {
+		sb.WriteString("_Released for a " + rel.Reason + " — no source changes in this package._\n\n")
 	}
 
 	// ── PR summary table ───────────────────────────────────────────
@@ -161,8 +167,8 @@ func GenerateNotes(version string, categories []Category, prevTag, repo string, 
 		sb.WriteString("### 📦 Assets\n\n")
 
 		if assets.ImageRef != "" {
-			// ghcr.io/owner/repo:tag → package page lives at
-			// github.com/owner/repo/pkgs/container/repo
+			// ghcr.io/owner/repo[/pkg]:tag → package page lives at
+			// github.com/owner/repo/pkgs/container/<name>
 			name := assets.ImageRef
 			if i := strings.LastIndex(name, "/"); i >= 0 {
 				name = name[i+1:]
@@ -182,7 +188,7 @@ func GenerateNotes(version string, categories []Category, prevTag, repo string, 
 	}
 
 	// ── Full changelog link ────────────────────────────────────────
-	if prevTag != "" && prevTag != "v0.0.0" && prevTag != "0.0.0" {
+	if prevTag := rel.PrevTag; prevTag != "" && prevTag != "v0.0.0" && prevTag != "0.0.0" {
 		sb.WriteString(fmt.Sprintf("**Full changelog:** [`%s...%s`](https://github.com/%s/compare/%s...%s)\n\n",
 			prevTag, version, repo, prevTag, version))
 	}

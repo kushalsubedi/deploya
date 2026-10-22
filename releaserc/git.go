@@ -7,10 +7,12 @@ import (
 	"strings"
 )
 
-// GitLog reads all commits between fromTag and HEAD.
+// GitLog reads all commits between fromTag and HEAD, optionally restricted to
+// one or more paths — that path filter is what makes per-package releases in a
+// monorepo possible.
 // Returns a slice of CommitInfo with SHA and raw message filled in.
 // Title, PRNumber and Label are filled later by the GitHub API enricher.
-func GitLog(dir, fromTag string) ([]CommitInfo, error) {
+func GitLog(dir, fromTag string, paths ...string) ([]CommitInfo, error) {
 	// Verify git is available
 	if err := checkGit(); err != nil {
 		return nil, err
@@ -30,7 +32,12 @@ func GitLog(dir, fromTag string) ([]CommitInfo, error) {
 	}
 
 	// Run git log — format: SHA<tab>subject
-	out, err := runGitOutput(dir, "log", logRange, "--format=%H\t%s", "--no-merges")
+	args := []string{"log", logRange, "--format=%H\t%s", "--no-merges"}
+	if scope := pathspec(paths); len(scope) > 0 {
+		args = append(args, "--")
+		args = append(args, scope...)
+	}
+	out, err := runGitOutput(dir, args...)
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
@@ -62,9 +69,30 @@ func GitLog(dir, fromTag string) ([]CommitInfo, error) {
 	return commits, nil
 }
 
-// LatestTag returns the most recent tag that is reachable from HEAD.
-// Falls back to version sort if no reachable tags exist.
+// pathspec drops empty and whole-repo entries — filtering by "." is the same
+// as not filtering, and passing it would silently exclude nothing anyway.
+func pathspec(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" || p == "." {
+			return nil
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// LatestTag returns the most recent tag reachable from HEAD.
 func LatestTag(dir string) (string, error) {
+	return LatestTagMatching(dir, "")
+}
+
+// LatestTagMatching returns the most recent tag matching the given glob
+// (e.g. "api/v*"), so each package in a monorepo tracks its own tag line.
+// An empty pattern matches any tag.
+// Falls back to version sort if no reachable tags exist.
+func LatestTagMatching(dir, pattern string) (string, error) {
 	if err := checkGit(); err != nil {
 		return "", err
 	}
@@ -73,13 +101,21 @@ func LatestTag(dir string) (string, error) {
 	_ = runGit(dir, "fetch", "--tags", "--quiet")
 
 	// Try reachable tags first — these are properly anchored to branch history
-	out, err := runGitOutput(dir, "describe", "--tags", "--abbrev=0")
+	describe := []string{"describe", "--tags", "--abbrev=0"}
+	if pattern != "" {
+		describe = append(describe, "--match", pattern)
+	}
+	out, err := runGitOutput(dir, describe...)
 	if err == nil && strings.TrimSpace(out) != "" {
 		return strings.TrimSpace(out), nil
 	}
 
 	// Fall back to version sort — handles orphan tags created via GitHub API
-	out, err = runGitOutput(dir, "tag", "--sort=-version:refname")
+	list := []string{"tag", "--sort=-version:refname"}
+	if pattern != "" {
+		list = append(list, "--list", pattern)
+	}
+	out, err = runGitOutput(dir, list...)
 	if err != nil || strings.TrimSpace(out) == "" {
 		return "", nil
 	}
