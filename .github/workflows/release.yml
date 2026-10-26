@@ -37,3 +37,17 @@ jobs:
         run: deploya release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write release summary
+        if: always()
+        env:
+          RELEASE_STATUS: ${{ job.status }}
+        run: |
+          echo "## Release Summary — ${{ github.repository }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| | Details |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch | ${{ github.ref_name }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | ${{ github.sha }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Result | $RELEASE_STATUS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Container images | Release units with Dockerfiles publish version-tagged images to GHCR. |" >> "$GITHUB_STEP_SUMMARY"

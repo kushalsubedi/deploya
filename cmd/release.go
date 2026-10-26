@@ -208,12 +208,10 @@ func executeRelease(o releaseOpts, cfg releaserc.Config, gh *releaserc.GitHub, r
 			fmt.Printf("\n🐳 Building and pushing container image %s...\n", ref)
 			pushed, err := releaserc.BuildAndPushImage(unitDir, cfg, rel.Pkg, rel.Version, o.Token)
 			if err != nil {
-				fmt.Printf("   ⚠️  Could not push image: %v\n", err)
-				fmt.Println("   Continuing without container asset...")
-			} else {
-				assets.ImageRef = pushed
-				fmt.Printf("   ✅ Pushed %s (and :latest)\n", pushed)
+				return "", fmt.Errorf("could not push container image %s: %w", ref, err)
 			}
+			assets.ImageRef = pushed
+			fmt.Printf("   ✅ Pushed %s (and :latest)\n", pushed)
 		}
 	}
 

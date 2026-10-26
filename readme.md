@@ -206,7 +206,7 @@ from_branch: dev # this might not be needed as the product is under development
 current_version: 0.1.1 # your current release version or github tag, if it is initial keep it `0.0.0`
 tag_prefix: v # tag prefix eg: v0.0.1, or whatever prefix you want 
 archive: true # build cross-platform binary archives (Go projects) and attach them to the release
-registry: ghcr # push a container image tagged with the release version (needs a Dockerfile; ghcr only for now)
+registry: ghcr # push container images tagged with each release version (needs a Dockerfile in the repo root or a released module; ghcr only for now)
 github_repo: kushalsubedi/deploya # your github repo 
 categories:
 # release types and commit typos 
@@ -215,6 +215,11 @@ categories:
   patches: [chore, refactor, perf, improvement]
   docs: [docs, doc]
 ```
+
+When a released unit has a Dockerfile in its directory, the release workflow
+builds and pushes its image to GHCR using that unit's version tag (for example,
+`ghcr.io/owner/repo/api:v1.2.3` for the `api` module). Generated CI and release
+workflows publish run summaries in the GitHub Actions summary.
 
 
 # Monorepo & modular releases

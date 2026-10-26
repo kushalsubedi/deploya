@@ -9,6 +9,7 @@ import (
 	"text/template"
 
 	"github.com/kushalsubedi/deploya/config"
+	"github.com/kushalsubedi/deploya/detector"
 	"github.com/kushalsubedi/deploya/releaserc"
 )
 
@@ -80,7 +81,7 @@ func WriteReleasePipeline(cfg releaserc.Config, dir string) (string, error) {
 		return "", err
 	}
 
-	content := buildReleasePipeline(cfg)
+	content := buildReleasePipeline(cfg, releaseImagesEnabled(cfg, dir))
 	outPath := filepath.Join(outDir, "release.yml")
 	if err := os.WriteFile(outPath, []byte(content), 0644); err != nil {
 		return "", err
@@ -126,7 +127,15 @@ func WriteGithubTemplates(dir string) ([]string, error) {
 	return written, nil
 }
 
-func buildReleasePipeline(cfg releaserc.Config) string {
+func buildReleasePipeline(cfg releaserc.Config, hasReleaseImages bool) string {
+	var imagePermission, imageSummary string
+	if hasReleaseImages {
+		imagePermission = "      packages: write\n"
+		imageSummary = "Version-tagged GHCR images are published for release units with Dockerfiles."
+	} else {
+		imageSummary = "No GHCR release image is configured for the release units."
+	}
+
 	return `name: Release
 
 on:
@@ -139,8 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      # needed so 'deploya release' can push the container image to GHCR
-      packages: write
+` + imagePermission + `
 
     steps:
       - name: Checkout code
@@ -167,7 +175,33 @@ jobs:
           # The built-in token works out of the box. Swap for a PAT
           # (secrets.GH_TOKEN) if the release commit must retrigger workflows.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write release summary
+        if: always()
+        env:
+          RELEASE_STATUS: ${{ job.status }}
+        run: |
+          echo "## Release Summary — ${{ github.repository }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| | Details |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch | ${{ github.ref_name }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | ${{ github.sha }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Result | $RELEASE_STATUS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Container images | ` + imageSummary + ` |" >> "$GITHUB_STEP_SUMMARY"
 `
+}
+
+func releaseImagesEnabled(cfg releaserc.Config, dir string) bool {
+	for _, unit := range cfg.Units() {
+		if unit.Registry != "ghcr" {
+			continue
+		}
+		if hasDocker, _ := detector.DetectDocker(unit.Dir(dir)); hasDocker {
+			return true
+		}
+	}
+	return false
 }
 
 func writeFile(path, content string) error {
