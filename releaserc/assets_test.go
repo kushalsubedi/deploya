@@ -62,8 +62,15 @@ func TestPlanImageRef(t *testing.T) {
 		t.Errorf("unexpected image ref %q", ref)
 	}
 
-	// A package gets its own image under the repo namespace
-	if ref := PlanImageRef(dir, cfg, Package{Name: "API"}, "v1.0.0"); ref != "ghcr.io/owner/myrepo/api:v1.0.0" {
+	// A Dockerfile in a monorepo module gets a package-specific version tag.
+	moduleDir := filepath.Join(dir, "services", "api")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ref := PlanImageRef(moduleDir, cfg, Package{Name: "API"}, "v1.2.3"); ref != "ghcr.io/owner/myrepo/api:v1.2.3" {
 		t.Errorf("unexpected package image ref %q", ref)
 	}
 
