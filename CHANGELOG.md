@@ -10,6 +10,32 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- releases are appended here automatically by deploya release -->
 
+## v1.0.0 — 2026-10-26
+
+### ✨ Features
+- Release and manage versioned dockerfiles ([#13](https://github.com/kushalsubedi/deploya/pull/13)) — [`511df36`](https://github.com/kushalsubedi/deploya/commit/511df3663ae1b6f042595008a606b844fa428bc1)
+
+---
+
+### 📋 Pull Requests
+
+| PR | Title | Author |
+|----|-------|--------|
+| [#13](https://github.com/kushalsubedi/deploya/pull/13) | Release and manage versioned dockerfiles | @kushalsubedi |
+
+### 📦 Assets
+
+- [deploya_v1.0.0_linux_amd64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v1.0.0/deploya_v1.0.0_linux_amd64.tar.gz)
+- [deploya_v1.0.0_linux_arm64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v1.0.0/deploya_v1.0.0_linux_arm64.tar.gz)
+- [deploya_v1.0.0_darwin_amd64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v1.0.0/deploya_v1.0.0_darwin_amd64.tar.gz)
+- [deploya_v1.0.0_darwin_arm64.tar.gz](https://github.com/kushalsubedi/deploya/releases/download/v1.0.0/deploya_v1.0.0_darwin_arm64.tar.gz)
+- [deploya_v1.0.0_windows_amd64.zip](https://github.com/kushalsubedi/deploya/releases/download/v1.0.0/deploya_v1.0.0_windows_amd64.zip)
+- [checksums.txt](https://github.com/kushalsubedi/deploya/releases/download/v1.0.0/checksums.txt)
+
+**Full changelog:** [`v0.8.0...v1.0.0`](https://github.com/kushalsubedi/deploya/compare/v0.8.0...v1.0.0)
+
+
+
 ## v0.8.0 — 2026-10-22
 
 ### ✨ Features
